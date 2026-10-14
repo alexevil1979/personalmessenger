@@ -385,7 +385,9 @@ class ChatService(
             """
             INSERT INTO conversation_members (conversation_id, user_id, role)
             VALUES (:conversationId, :userId, :role)
-            ON CONFLICT (conversation_id, user_id) DO NOTHING
+            ON CONFLICT (conversation_id, user_id) DO UPDATE
+            SET left_at = NULL, role = EXCLUDED.role
+            WHERE conversation_members.left_at IS NOT NULL
             """.trimIndent(),
         ).param("conversationId", conversationId).param("userId", userId).param("role", role).update()
     }

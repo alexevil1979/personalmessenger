@@ -154,8 +154,23 @@ class ChatApi @Inject constructor(
         JSONObject(body).getString("url")
     }
 
+    fun blocks(): List<String> = authorized { account ->
+        val body = call(account, "GET", "/api/v1/blocks", null)
+        val array = JSONArray(if (body.isBlank()) "[]" else body)
+        buildList {
+            for (index in 0 until array.length()) {
+                add(array.getJSONObject(index).optString("username"))
+            }
+        }
+    }
+
     fun block(username: String) = authorized { account ->
         call(account, "POST", "/api/v1/blocks", JSONObject().put("username", username))
+        Unit
+    }
+
+    fun unblock(username: String) = authorized { account ->
+        call(account, "DELETE", "/api/v1/blocks/$username", null)
         Unit
     }
 

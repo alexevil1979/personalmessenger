@@ -32,6 +32,7 @@ data class ChatUi(
     val openRole: String = "member",
     val peerName: String = "",
     val peerUsername: String = "",
+    val peerBlocked: Boolean = false,
     val errorCode: String? = null,
     val working: Boolean = false,
     val recording: Boolean = false,
@@ -89,8 +90,10 @@ class ChatViewModel @Inject constructor(
                     openRole = conversation.myRole,
                     peerName = conversation.peerDisplayName,
                     peerUsername = conversation.peerUsername,
+                    peerBlocked = false,
                 )
                 sync(conversation.id)
+                refreshBlock(conversation.id, conversation.peerUsername)
             } catch (error: AuthCallException) {
                 _state.value = _state.value.copy(working = false, errorCode = error.code)
             } catch (_: Exception) {
@@ -106,9 +109,11 @@ class ChatViewModel @Inject constructor(
             openRole = role,
             peerName = peerName,
             peerUsername = peerUsername,
+            peerBlocked = false,
             errorCode = null,
         )
         viewModelScope.launch(Dispatchers.IO) { sync(id) }
+        refreshBlock(id, peerUsername)
     }
 
     fun createGroup(title: String) {
@@ -126,6 +131,7 @@ class ChatViewModel @Inject constructor(
                     openRole = conversation.myRole,
                     peerName = conversation.peerDisplayName,
                     peerUsername = conversation.peerUsername,
+                    peerBlocked = false,
                 )
                 sync(conversation.id)
             } catch (error: AuthCallException) {
@@ -317,7 +323,30 @@ class ChatViewModel @Inject constructor(
     fun blockOpenPeer() {
         val name = _state.value.peerUsername
         if (_state.value.openType != "direct" || name.isBlank() || _state.value.working) return
-        act { chatApi.block(name) }
+        val blocked = _state.value.peerBlocked
+        _state.value = _state.value.copy(working = true, errorCode = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (blocked) chatApi.unblock(name) else chatApi.block(name)
+                _state.value = _state.value.copy(working = false, peerBlocked = !blocked)
+            } catch (error: AuthCallException) {
+                _state.value = _state.value.copy(working = false, errorCode = error.code)
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(working = false, errorCode = "network")
+            }
+        }
+    }
+
+    private fun refreshBlock(conversationId: String, peerUsername: String) {
+        if (peerUsername.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val blocked = runCatching {
+                chatApi.blocks().any { it.equals(peerUsername, ignoreCase = true) }
+            }.getOrDefault(false)
+            if (_state.value.openId == conversationId) {
+                _state.value = _state.value.copy(peerBlocked = blocked)
+            }
+        }
     }
 
     fun leaveOpenGroup() {

@@ -130,7 +130,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
             }
             if (state.openType == "direct") {
                 TextButton(onClick = viewModel::blockOpenPeer, enabled = !state.working) {
-                    Text(stringResource(R.string.block_person))
+                    Text(stringResource(if (state.peerBlocked) R.string.unblock_person else R.string.block_person))
                 }
             }
             if (state.openType == "group") {

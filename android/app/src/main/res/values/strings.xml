@@ -57,6 +57,7 @@
     <string name="change_password">Сменить пароль</string>
     <string name="password_changed">Пароль изменён. Другие сессии закрыты.</string>
     <string name="block_person">Заблокировать</string>
+    <string name="unblock_person">Разблокировать</string>
     <string name="leave_group">Выйти из группы</string>
     <string name="remove_member">Исключить</string>
     <string name="error_owner_stays">Владелец не выходит, пока в группе есть другие.</string>

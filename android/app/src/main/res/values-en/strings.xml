@@ -57,6 +57,7 @@
     <string name="change_password">Change password</string>
     <string name="password_changed">Password changed. Other sessions were closed.</string>
     <string name="block_person">Block</string>
+    <string name="unblock_person">Unblock</string>
     <string name="leave_group">Leave group</string>
     <string name="remove_member">Remove</string>
     <string name="error_owner_stays">The owner stays while other people are in the group.</string>
