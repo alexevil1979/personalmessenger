@@ -1,0 +1,72 @@
+spring:
+  application:
+    name: personal-messenger
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://127.0.0.1:5432/messenger}
+    username: ${DB_USER:messenger}
+    password: ${DB_PASSWORD:}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+  servlet:
+    multipart:
+      max-file-size: 8MB
+      max-request-size: 9MB
+
+server:
+  port: ${SERVER_PORT:8080}
+  forward-headers-strategy: framework
+  tomcat:
+    max-http-form-post-size: 9MB
+    max-swallow-size: 9MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: personal-messenger
+    version: 0.5.1
+
+app:
+  version: 0.5.1
+  auth:
+    access-ttl: 15m
+    refresh-ttl: 30d
+    login-failures: 8
+    login-window: 15m
+  bootstrap:
+    admin-username: ${BOOTSTRAP_ADMIN_USERNAME:}
+    admin-password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+    admin-display-name: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:Administrator}
+  storage:
+    endpoint: ${MINIO_ENDPOINT:}
+    access-key: ${MINIO_ACCESS_KEY:}
+    secret-key: ${MINIO_SECRET_KEY:}
+    bucket: ${MINIO_BUCKET:messenger}
+    max-bytes: 8388608
+    link-ttl: 5m
+  cors:
+    allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html

@@ -1,0 +1,46 @@
+package ru.pm.messenger.chat
+
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
+import org.springframework.web.bind.annotation.RestController
+import ru.pm.messenger.identity.currentPrincipal
+import java.util.UUID
+
+@RestController
+@RequestMapping("/api/v1/conversations")
+class ChatController(
+    private val chat: ChatService,
+    private val live: LiveSessions,
+) {
+    @PostMapping("/direct")
+    fun open(@RequestBody body: OpenDirectRequest): ConversationView =
+        chat.openDirect(currentPrincipal(), body)
+
+    @PostMapping("/group")
+    fun createGroup(@RequestBody body: CreateGroupRequest): ConversationView =
+        chat.createGroup(currentPrincipal(), body)
+
+    @PostMapping("/{id}/members")
+    fun addMember(@PathVariable id: UUID, @RequestBody body: AddMemberRequest): ConversationView =
+        chat.addMember(currentPrincipal(), id, body)
+
+    @GetMapping
+    fun list(): List<ConversationView> = chat.list(currentPrincipal())
+
+    @GetMapping("/{id}/messages")
+    fun messages(
+        @PathVariable id: UUID,
+        @RequestParam(name = "afterSeq", defaultValue = "0") afterSeq: Long,
+    ): List<MessageView> = chat.messages(currentPrincipal(), id, afterSeq)
+
+    @PostMapping("/{id}/messages")
+    fun send(@PathVariable id: UUID, @RequestBody body: SendMessageRequest): MessageView {
+        val message = chat.send(currentPrincipal(), id, body)
+        live.publish(message, chat.memberIds(id))
+        return message
+    }
+}

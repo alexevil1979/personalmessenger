@@ -1,0 +1,22 @@
+{
+	auto_https off
+}
+
+:80 {
+	encode gzip
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+	handle /actuator/* {
+		reverse_proxy backend:8080
+	}
+	handle /v3/* {
+		reverse_proxy backend:8080
+	}
+	handle /swagger-ui* {
+		reverse_proxy backend:8080
+	}
+	handle {
+		reverse_proxy admin:80
+	}
+}

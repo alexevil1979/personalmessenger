@@ -1,0 +1,24 @@
+# Production TLS. Use this file only after DNS for the hostname points at the server.
+# Replace the email. Do not commit real credentials.
+{
+	email {$ACME_EMAIL}
+}
+
+{$PUBLIC_HOST} {
+	encode gzip
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+	handle /actuator/* {
+		reverse_proxy backend:8080
+	}
+	handle /v3/* {
+		reverse_proxy backend:8080
+	}
+	handle /swagger-ui* {
+		reverse_proxy backend:8080
+	}
+	handle {
+		reverse_proxy admin:80
+	}
+}
