@@ -14,8 +14,8 @@ android {
         applicationId = "ru.pm.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.6.1"
+        versionCode = 9
+        versionName = "0.6.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "API_BASE_URL", "\"https://pm.1tlt.ru\"")
     }
@@ -50,6 +50,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")

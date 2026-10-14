@@ -30,6 +30,15 @@
     <string name="error_network">Нет ответа от сервера.</string>
     <string name="error_generic">Запрос отклонён.</string>
     <string name="chats_title">Чаты</string>
+    <string name="search">Поиск</string>
+    <string name="new_chat">Новый чат</string>
+    <string name="settings">Настройки</string>
+    <string name="show_server">Другой сервер</string>
+    <string name="hide_server">Скрыть адрес сервера</string>
+    <string name="empty_chats">Пока нет чатов</string>
+    <string name="nothing_found">Ничего не нашлось</string>
+    <string name="group_subtitle">группа</string>
+    <string name="recording_now">Идёт запись</string>
     <string name="chats_plaintext">Текст и файлы пока читаются сервером. Сквозного шифрования нет.</string>
     <string name="peer_username">Имя собеседника</string>
     <string name="open_chat">Открыть чат</string>

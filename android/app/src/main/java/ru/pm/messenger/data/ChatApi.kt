@@ -59,7 +59,7 @@ fun parseConversation(item: JSONObject) = RemoteConversation(
     myRole = item.optString("myRole", "member"),
     peerUsername = item.optString("peerUsername"),
     peerDisplayName = item.optString("peerDisplayName"),
-    preview = item.optString("preview"),
+    preview = item.optString("preview").takeUnless { it == "null" }.orEmpty(),
     updatedAt = item.optString("updatedAt"),
 )
 

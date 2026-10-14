@@ -3,10 +3,13 @@ package ru.pm.messenger.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -19,17 +22,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.pm.messenger.AccountState
 import ru.pm.messenger.AccountViewModel
 import ru.pm.messenger.R
 
 @Composable
-fun AccountScreen(viewModel: AccountViewModel, baseUrl: String) {
+fun AccountScreen(viewModel: AccountViewModel, baseUrl: String, onBaseUrlChange: (String) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var registerMode by rememberSaveable { mutableStateOf(false) }
     var username by rememberSaveable { mutableStateOf("") }
@@ -39,8 +45,19 @@ fun AccountScreen(viewModel: AccountViewModel, baseUrl: String) {
     var privacyAccepted by rememberSaveable { mutableStateOf(false) }
     var currentPassword by rememberSaveable { mutableStateOf("") }
     var newPassword by rememberSaveable { mutableStateOf("") }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(text = stringResource(R.string.account_title), style = MaterialTheme.typography.headlineMedium)
+    var showServer by rememberSaveable { mutableStateOf(false) }
+    val signedIn = state is AccountState.SignedIn
+    Column(
+        modifier = if (signedIn) Modifier.fillMaxWidth() else Modifier.fillMaxSize().padding(horizontal = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp, if (signedIn) Alignment.Top else Alignment.CenterVertically),
+        horizontalAlignment = if (signedIn) Alignment.Start else Alignment.CenterHorizontally,
+    ) {
+        if (!signedIn) {
+            Text(stringResource(R.string.app_name), color = Tg.text, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.no_e2ee), color = Tg.secondary, fontSize = 15.sp)
+        } else {
+            Text(text = stringResource(R.string.account_title), color = Tg.text, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        }
         when (val current = state) {
             is AccountState.SignedIn -> {
                 Text(stringResource(R.string.signed_in, current.displayName, current.username))
@@ -86,7 +103,7 @@ fun AccountScreen(viewModel: AccountViewModel, baseUrl: String) {
                 }
             }
             else -> {
-                Text(text = stringResource(R.string.account_body), style = MaterialTheme.typography.bodyLarge)
+                Text(text = stringResource(R.string.account_body), color = Tg.secondary, fontSize = 14.sp)
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
@@ -125,8 +142,17 @@ fun AccountScreen(viewModel: AccountViewModel, baseUrl: String) {
                         Text(stringResource(R.string.privacy_accept))
                     }
                 }
+                if (showServer) {
+                    OutlinedTextField(
+                        value = baseUrl,
+                        onValueChange = onBaseUrlChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.server_url)) },
+                        singleLine = true,
+                    )
+                }
                 if (state is AccountState.Working) {
-                    CircularProgressIndicator()
+                    CircularProgressIndicator(color = Tg.accent)
                 } else {
                     Button(
                         onClick = {
@@ -138,6 +164,8 @@ fun AccountScreen(viewModel: AccountViewModel, baseUrl: String) {
                             password = ""
                         },
                         enabled = baseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Tg.accent, contentColor = Color.White),
                     ) {
                         Text(stringResource(if (registerMode) R.string.register else R.string.login))
                     }
@@ -145,11 +173,14 @@ fun AccountScreen(viewModel: AccountViewModel, baseUrl: String) {
                 if (state is AccountState.Failed) {
                     Text(
                         text = stringResource(messageFor((state as AccountState.Failed).code)),
-                        color = MaterialTheme.colorScheme.error,
+                        color = Tg.danger,
                     )
                 }
                 TextButton(onClick = { registerMode = !registerMode }) {
-                    Text(stringResource(if (registerMode) R.string.have_account else R.string.need_account))
+                    Text(stringResource(if (registerMode) R.string.have_account else R.string.need_account), color = Tg.accentBright)
+                }
+                TextButton(onClick = { showServer = !showServer }) {
+                    Text(stringResource(if (showServer) R.string.hide_server else R.string.show_server), color = Tg.secondary)
                 }
             }
         }
