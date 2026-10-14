@@ -1,12 +1,16 @@
 package ru.pm.messenger.chat
 
+import org.springframework.http.HttpStatus
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import ru.pm.messenger.identity.ReadCursor
 import ru.pm.messenger.identity.currentPrincipal
 import java.util.UUID
 
@@ -27,6 +31,19 @@ class ChatController(
     @PostMapping("/{id}/members")
     fun addMember(@PathVariable id: UUID, @RequestBody body: AddMemberRequest): ConversationView =
         chat.addMember(currentPrincipal(), id, body)
+
+    @DeleteMapping("/{id}/members/{username}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun removeMember(@PathVariable id: UUID, @PathVariable username: String) =
+        chat.removeMember(currentPrincipal(), id, username)
+
+    @PostMapping("/{id}/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun leave(@PathVariable id: UUID) = chat.leave(currentPrincipal(), id)
+
+    @PostMapping("/{id}/read")
+    fun read(@PathVariable id: UUID, @RequestBody body: ReadCursor): ReadCursor =
+        chat.markRead(currentPrincipal(), id, body.lastReadSeq)
 
     @GetMapping
     fun list(): List<ConversationView> = chat.list(currentPrincipal())

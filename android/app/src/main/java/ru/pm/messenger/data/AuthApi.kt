@@ -86,6 +86,8 @@ interface AuthApi {
     fun me(account: Account): Profile
 
     fun logout(account: Account)
+
+    fun changePassword(account: Account, currentPassword: String, newPassword: String)
 }
 
 class OkHttpAuthApi @Inject constructor(
@@ -134,6 +136,15 @@ class OkHttpAuthApi @Inject constructor(
 
     override fun logout(account: Account) {
         post(account.baseUrl, "/api/v1/auth/logout", JSONObject(), account.accessToken) { _ -> Unit }
+    }
+
+    override fun changePassword(account: Account, currentPassword: String, newPassword: String) {
+        post(
+            account.baseUrl,
+            "/api/v1/me/password",
+            JSONObject().put("currentPassword", currentPassword).put("newPassword", newPassword),
+            account.accessToken,
+        ) { _ -> Unit }
     }
 
     private fun <T> get(account: Account, path: String, parse: (String) -> T): T {

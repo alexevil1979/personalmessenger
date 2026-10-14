@@ -13,6 +13,7 @@ type Invitation = {
 };
 
 type Session = { accessToken: string; refreshToken: string; role: string | null; username: string };
+type Person = { id: string; username: string; displayName: string; status: string; role: string | null };
 
 async function api(path: string, method: string, token: string | null, body?: unknown) {
   const response = await fetch(path, {
@@ -42,6 +43,7 @@ export function AdminAccess() {
   const [freshCode, setFreshCode] = useState("");
   const [hours, setHours] = useState("24");
   const [uses, setUses] = useState("1");
+  const [people, setPeople] = useState<Person[]>([]);
 
   async function login(event: FormEvent) {
     event.preventDefault();
@@ -64,6 +66,7 @@ export function AdminAccess() {
       setPassword("");
       if (next.role === "owner" || next.role === "admin") {
         setInvitations(await api("/api/v1/admin/invitations", "GET", next.accessToken));
+        setPeople(await api("/api/v1/admin/users", "GET", next.accessToken));
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Не удалось войти");
@@ -84,6 +87,17 @@ export function AdminAccess() {
       setInvitations(await api("/api/v1/admin/invitations", "GET", session.accessToken));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Не удалось создать приглашение");
+    }
+  }
+
+  async function setStatus(username: string, status: string) {
+    if (!session) return;
+    setError("");
+    try {
+      await api(`/api/v1/admin/users/${username}/status`, "POST", session.accessToken, { status });
+      setPeople(await api("/api/v1/admin/users", "GET", session.accessToken));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Не удалось изменить статус");
     }
   }
 
@@ -147,6 +161,26 @@ export function AdminAccess() {
           {freshCode && (
             <Alert severity="warning">Код показывается один раз: {freshCode}</Alert>
           )}
+          <Typography variant="h6" component="h3">
+            Люди
+          </Typography>
+          {people.map((person) => (
+            <Stack key={person.id} direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <Typography>
+                {person.username} ({person.displayName}) — {person.status}
+                {person.role ? `, ${person.role}` : ""}
+              </Typography>
+              {person.username !== session.username && person.role !== "owner" && (
+                <Button
+                  onClick={() =>
+                    void setStatus(person.username, person.status === "blocked" ? "active" : "blocked")
+                  }
+                >
+                  {person.status === "blocked" ? "Разблокировать" : "Заблокировать"}
+                </Button>
+              )}
+            </Stack>
+          ))}
           {invitations.map((invitation) => (
             <Stack key={invitation.id} direction="row" spacing={1} sx={{ alignItems: "center" }}>
               <Typography>

@@ -52,6 +52,15 @@
     <string name="stop_recording">Stop and send</string>
     <string name="error_mic_denied">Microphone access was denied.</string>
     <string name="error_mic_failed">The voice message could not be recorded.</string>
+    <string name="current_password">Current password</string>
+    <string name="new_password">New password</string>
+    <string name="change_password">Change password</string>
+    <string name="password_changed">Password changed. Other sessions were closed.</string>
+    <string name="block_person">Block</string>
+    <string name="leave_group">Leave group</string>
+    <string name="remove_member">Remove</string>
+    <string name="error_owner_stays">The owner stays while other people are in the group.</string>
+    <string name="error_remove_self">Leave the group instead of removing yourself.</string>
     <string name="error_unsupported">This file type is not allowed. Use an image, PDF, or audio file.</string>
     <string name="error_too_large">The file is larger than 8 MB.</string>
     <string name="server_url">Server address</string>

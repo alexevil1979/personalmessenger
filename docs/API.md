@@ -94,6 +94,21 @@ OpenAPI: `GET /v3/api-docs`, UI: `GET /swagger-ui.html`.
 | POST | `/api/v1/attachments/{id}/link` | участник чата, ссылка на скачивание |
 | GET | `/api/v1/attachments/{id}/content?ticket=` | билет из ссылки, без сессии, до `expiresAt` |
 
+## Реализовано в этапе 7, часть
+
+Смена пароля оставляет текущую сессию и гасит остальные. Блокировка запрещает личный чат в обе стороны. Владелец группы не выходит, пока в ней есть другие. Администратор видит людей и может поставить статус `blocked`: сессии гасятся, вход отвечает `403`.
+
+| Метод | Путь | Доступ |
+| --- | --- | --- |
+| POST | `/api/v1/me/password` | тело `{currentPassword, newPassword}` |
+| GET, POST | `/api/v1/blocks` | свои блокировки, тело `{username}` |
+| DELETE | `/api/v1/blocks/{username}` | своя блокировка |
+| POST | `/api/v1/conversations/{id}/leave` | участник |
+| DELETE | `/api/v1/conversations/{id}/members/{username}` | `owner` или `admin` |
+| POST | `/api/v1/conversations/{id}/read` | участник, тело `{lastReadSeq}` |
+| GET | `/api/v1/admin/users` | `owner` и `admin` |
+| POST | `/api/v1/admin/users/{username}/status` | тело `{status}`: `active` или `blocked` |
+
 ## Не реализовано
 
 Эти операции появятся в указанных этапах. Сейчас любой другой путь под `/api/v1` отвечает `401` и не имитирует успешный ответ.
@@ -102,6 +117,6 @@ OpenAPI: `GET /v3/api-docs`, UI: `GET /swagger-ui.html`.
 | --- | --- |
 | Ключи и шифротекст Signal | 5 |
 | Сигнализация и история звонков, push | 6 |
-| Администрирование, аудит, настройки | 7 |
+| Аудит в интерфейсе, настройки | 7 |
 
 Клиент не передаёт авторитетные `user_id` и `role`. Идентичность определяется сессией на сервере.

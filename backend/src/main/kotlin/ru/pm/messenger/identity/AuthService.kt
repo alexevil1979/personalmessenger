@@ -199,6 +199,77 @@ class AuthService(
         audit(principal.userId, "auth.session_revoked", "session", sessionId.toString(), null)
     }
 
+    @Transactional
+    fun changePassword(principal: MessengerPrincipal, request: ChangePasswordRequest) {
+        val user = findUserById(principal.userId)
+            ?: throw ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "Authentication is required.")
+        if (!passwords.matches(request.currentPassword, user.passwordHash)) {
+            throw ApiException(HttpStatus.UNAUTHORIZED, "invalid_credentials", "Username or password is wrong.")
+        }
+        validatePassword(user.username, request.newPassword)
+        if (passwords.matches(request.newPassword, user.passwordHash)) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Choose a different password.")
+        }
+        jdbc.sql("UPDATE users SET password_hash = :hash, updated_at = now() WHERE id = :id")
+            .param("hash", passwords.encode(request.newPassword))
+            .param("id", user.id)
+            .update()
+        jdbc.sql(
+            """
+            UPDATE sessions SET revoked_at = now()
+            WHERE user_id = :userId AND id <> :current AND revoked_at IS NULL
+            """.trimIndent(),
+        ).param("userId", user.id).param("current", principal.sessionId).update()
+        audit(user.id, "auth.password_changed", "user", user.id.toString(), null)
+    }
+
+    fun adminUsers(principal: MessengerPrincipal): List<AdminUserView> {
+        requireAdmin(principal)
+        return jdbc.sql(
+            """
+            SELECT u.id, u.username, u.display_name, u.status, ar.role, u.created_at
+            FROM users u
+            LEFT JOIN admin_roles ar ON ar.user_id = u.id
+            WHERE u.deleted_at IS NULL
+            ORDER BY u.created_at ASC
+            LIMIT 200
+            """.trimIndent(),
+        ).query { rs, _ ->
+            AdminUserView(
+                id = rs.uuid("id"),
+                username = rs.getString("username"),
+                displayName = rs.getString("display_name"),
+                status = rs.getString("status"),
+                role = rs.getString("role"),
+                createdAt = rs.time("created_at"),
+            )
+        }.list()
+    }
+
+    @Transactional
+    fun setUserStatus(principal: MessengerPrincipal, username: String, status: String) {
+        requireAdmin(principal)
+        if (status != "active" && status != "blocked") {
+            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Status is invalid.")
+        }
+        val target = findUser(normalizeUsername(username))
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "user_not_found", "User was not found.")
+        if (target.id == principal.userId) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "cannot_change_self", "Choose another person.")
+        }
+        if (target.role == "owner") {
+            throw ApiException(HttpStatus.FORBIDDEN, "forbidden", "Access is denied.")
+        }
+        jdbc.sql("UPDATE users SET status = :status, updated_at = now() WHERE id = :id")
+            .param("status", status)
+            .param("id", target.id)
+            .update()
+        if (status == "blocked") {
+            revokeAll(target.id)
+        }
+        audit(principal.userId, "admin.user_status", "user", target.id.toString(), null)
+    }
+
     fun me(principal: MessengerPrincipal): UserView {
         val user = findUserById(principal.userId)
             ?: throw ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "Authentication is required.")

@@ -84,6 +84,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             conversation.peerDisplayName,
                             conversation.type,
                             conversation.myRole,
+                            conversation.peerUsername,
                         )
                     },
                 ) {
@@ -116,6 +117,25 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     enabled = !state.working && memberName.isNotBlank(),
                 ) {
                     Text(stringResource(R.string.add_member))
+                }
+                TextButton(
+                    onClick = {
+                        viewModel.removeMember(memberName)
+                        memberName = ""
+                    },
+                    enabled = !state.working && memberName.isNotBlank(),
+                ) {
+                    Text(stringResource(R.string.remove_member))
+                }
+            }
+            if (state.openType == "direct") {
+                TextButton(onClick = viewModel::blockOpenPeer, enabled = !state.working) {
+                    Text(stringResource(R.string.block_person))
+                }
+            }
+            if (state.openType == "group") {
+                TextButton(onClick = viewModel::leaveOpenGroup, enabled = !state.working) {
+                    Text(stringResource(R.string.leave_group))
                 }
             }
             state.messages.forEach { message ->
@@ -193,6 +213,8 @@ private fun chatError(code: String): Int = when (code) {
     "payload_too_large" -> R.string.error_too_large
     "mic_denied" -> R.string.error_mic_denied
     "mic_failed" -> R.string.error_mic_failed
+    "owner_must_stay" -> R.string.error_owner_stays
+    "cannot_remove_self" -> R.string.error_remove_self
     "network" -> R.string.error_network
     else -> R.string.error_generic
 }

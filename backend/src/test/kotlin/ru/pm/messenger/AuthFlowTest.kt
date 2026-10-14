@@ -170,6 +170,37 @@ class AuthFlowTest {
         assertFalse(response.raw.contains("not-the-real-password"))
     }
 
+    @Test
+    @Order(6)
+    fun passwordChangeKeepsCurrentSessionAndAdminCanBlock() {
+        val changed = post("/api/v1/me/password", mapOf(
+            "currentPassword" to "alice-password-1",
+            "newPassword" to "alice-password-2",
+        ), userAccess)
+        assertEquals(204, changed.statusCode(), changed.raw)
+        assertEquals(200, get("/api/v1/me", userAccess).statusCode())
+        val oldLogin = post("/api/v1/auth/login", mapOf(
+            "username" to "alice",
+            "password" to "alice-password-1",
+            "deviceName" to "pixel",
+            "platform" to "android",
+        ))
+        assertEquals(401, oldLogin.statusCode())
+        val blocked = post("/api/v1/admin/users/alice/status", mapOf("status" to "blocked"), adminAccess)
+        assertEquals(204, blocked.statusCode(), blocked.raw)
+        assertEquals(401, get("/api/v1/me", userAccess).statusCode())
+        val login = post("/api/v1/auth/login", mapOf(
+            "username" to "alice",
+            "password" to "alice-password-2",
+            "deviceName" to "pixel",
+            "platform" to "android",
+        ))
+        assertEquals(403, login.statusCode())
+        val users = get("/api/v1/admin/users", adminAccess)
+        assertEquals(200, users.statusCode(), users.raw)
+        assertTrue(users.raw.contains("alice"))
+    }
+
     private fun get(path: String, token: String): Call = send("GET", path, null, token)
 
     private fun post(path: String, body: Any, token: String? = null): Call = send("POST", path, body, token)

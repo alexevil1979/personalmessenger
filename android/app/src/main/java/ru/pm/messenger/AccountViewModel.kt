@@ -22,6 +22,7 @@ sealed interface AccountState {
         val username: String,
         val displayName: String,
         val role: String?,
+        val notice: String? = null,
     ) : AccountState
     data class Failed(val code: String) : AccountState
 }
@@ -77,6 +78,25 @@ class AccountViewModel @Inject constructor(
             val account = authApi.register(baseUrl, normalized, name, password, code, deviceName())
             sessionStore.write(account)
             account.signedIn()
+        }
+    }
+
+    fun changePassword(currentPassword: String, newPassword: String) {
+        val saved = sessionStore.read() ?: return
+        val signedIn = _state.value as? AccountState.SignedIn ?: return
+        if (newPassword.length < 12 || newPassword.equals(signedIn.username, ignoreCase = true)) {
+            _state.value = signedIn.copy(notice = "weak_password")
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _state.value = try {
+                authApi.changePassword(saved, currentPassword, newPassword)
+                signedIn.copy(notice = "password_changed")
+            } catch (error: AuthCallException) {
+                signedIn.copy(notice = error.code)
+            } catch (_: Exception) {
+                signedIn.copy(notice = "network")
+            }
         }
     }
 

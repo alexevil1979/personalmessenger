@@ -52,6 +52,15 @@
     <string name="stop_recording">Остановить и отправить</string>
     <string name="error_mic_denied">Нет доступа к микрофону.</string>
     <string name="error_mic_failed">Не удалось записать голосовое.</string>
+    <string name="current_password">Текущий пароль</string>
+    <string name="new_password">Новый пароль</string>
+    <string name="change_password">Сменить пароль</string>
+    <string name="password_changed">Пароль изменён. Другие сессии закрыты.</string>
+    <string name="block_person">Заблокировать</string>
+    <string name="leave_group">Выйти из группы</string>
+    <string name="remove_member">Исключить</string>
+    <string name="error_owner_stays">Владелец не выходит, пока в группе есть другие.</string>
+    <string name="error_remove_self">Себя исключать не нужно: выйдите из группы.</string>
     <string name="error_unsupported">Этот тип файла не принимается. Можно изображение, PDF или аудио.</string>
     <string name="error_too_large">Файл больше 8 МБ.</string>
     <string name="server_url">Адрес сервера</string>

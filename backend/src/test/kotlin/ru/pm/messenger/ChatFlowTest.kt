@@ -237,6 +237,45 @@ class ChatFlowTest {
         assertEquals(404, expired.first)
     }
 
+    @Test
+    @Order(6)
+    fun blockLeaveAndReadCursor() {
+        val blocked = post("/api/v1/blocks", mapOf("username" to "bob"), alice)
+        assertEquals(204, blocked.statusCode(), blocked.raw)
+        val denied = post(
+            "/api/v1/conversations/$conversationId/messages",
+            mapOf("clientMessageId" to UUID.randomUUID().toString(), "text" to "после блока"),
+            alice,
+        )
+        assertEquals(403, denied.statusCode())
+        val unblocked = delete("/api/v1/blocks/bob", alice)
+        assertEquals(204, unblocked.statusCode(), unblocked.raw)
+        val created = post("/api/v1/conversations/group", mapOf("title" to "двор"), alice)
+        val groupId = created.body.path("id").asText()
+        post("/api/v1/conversations/$groupId/members", mapOf("username" to "bob"), alice)
+        post("/api/v1/conversations/$groupId/members", mapOf("username" to "carol"), alice)
+        val removed = delete("/api/v1/conversations/$groupId/members/carol", alice)
+        assertEquals(204, removed.statusCode(), removed.raw)
+        assertEquals(404, get("/api/v1/conversations/$groupId/messages?afterSeq=0", carol).statusCode())
+        val ownerLeave = post("/api/v1/conversations/$groupId/leave", emptyMap<String, String>(), alice)
+        assertEquals(400, ownerLeave.statusCode())
+        val left = post("/api/v1/conversations/$groupId/leave", emptyMap<String, String>(), bob)
+        assertEquals(204, left.statusCode(), left.raw)
+        val sent = post(
+            "/api/v1/conversations/$conversationId/messages",
+            mapOf("clientMessageId" to UUID.randomUUID().toString(), "text" to "после снятия блока"),
+            alice,
+        )
+        assertEquals(200, sent.statusCode(), sent.raw)
+        val read = post(
+            "/api/v1/conversations/$conversationId/read",
+            mapOf("lastReadSeq" to sent.body.path("seq").asLong()),
+            bob,
+        )
+        assertEquals(200, read.statusCode(), read.raw)
+        assertEquals(sent.body.path("seq").asLong(), read.body.path("lastReadSeq").asLong())
+    }
+
     private fun seedUser(username: String) {
         jdbc.update(
             "INSERT INTO users (id, username, display_name, password_hash, privacy_policy_accepted_at) VALUES (?, ?, ?, ?, now())",
@@ -261,6 +300,8 @@ class ChatFlowTest {
     private fun get(path: String, token: String): Call = send("GET", path, null, token)
 
     private fun post(path: String, body: Any, token: String? = null): Call = send("POST", path, body, token)
+
+    private fun delete(path: String, token: String): Call = send("DELETE", path, null, token)
 
     private fun uploadFile(conversationId: String, fileName: String, bytes: ByteArray, token: String): Call {
         val boundary = "pm-boundary"

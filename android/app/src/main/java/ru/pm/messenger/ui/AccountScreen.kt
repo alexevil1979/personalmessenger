@@ -37,6 +37,8 @@ fun AccountScreen(viewModel: AccountViewModel, baseUrl: String) {
     var password by rememberSaveable { mutableStateOf("") }
     var invitation by rememberSaveable { mutableStateOf("") }
     var privacyAccepted by rememberSaveable { mutableStateOf(false) }
+    var currentPassword by rememberSaveable { mutableStateOf("") }
+    var newPassword by rememberSaveable { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(text = stringResource(R.string.account_title), style = MaterialTheme.typography.headlineMedium)
         when (val current = state) {
@@ -50,6 +52,35 @@ fun AccountScreen(viewModel: AccountViewModel, baseUrl: String) {
                     },
                 )
                 Text(text = stringResource(R.string.no_e2ee), style = MaterialTheme.typography.bodyMedium)
+                OutlinedTextField(
+                    value = currentPassword,
+                    onValueChange = { currentPassword = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.current_password)) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                OutlinedTextField(
+                    value = newPassword,
+                    onValueChange = { newPassword = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.new_password)) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+                Button(
+                    onClick = {
+                        viewModel.changePassword(currentPassword, newPassword)
+                        currentPassword = ""
+                        newPassword = ""
+                    },
+                    enabled = currentPassword.isNotBlank() && newPassword.isNotBlank(),
+                ) {
+                    Text(stringResource(R.string.change_password))
+                }
+                current.notice?.let { notice ->
+                    Text(text = stringResource(messageFor(notice)), color = MaterialTheme.colorScheme.primary)
+                }
                 Button(onClick = viewModel::logout, enabled = true) {
                     Text(stringResource(R.string.logout))
                 }
@@ -132,6 +163,7 @@ private fun messageFor(code: String): Int = when (code) {
     "username_taken" -> R.string.error_username_taken
     "invalid_credentials" -> R.string.error_credentials
     "account_blocked" -> R.string.error_blocked
+    "password_changed" -> R.string.password_changed
     "rate_limited" -> R.string.error_rate_limit
     "validation_error" -> R.string.error_validation
     "network" -> R.string.error_network

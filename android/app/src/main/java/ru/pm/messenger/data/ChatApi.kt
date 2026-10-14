@@ -154,6 +154,26 @@ class ChatApi @Inject constructor(
         JSONObject(body).getString("url")
     }
 
+    fun block(username: String) = authorized { account ->
+        call(account, "POST", "/api/v1/blocks", JSONObject().put("username", username))
+        Unit
+    }
+
+    fun leave(conversationId: String) = authorized { account ->
+        call(account, "POST", "/api/v1/conversations/$conversationId/leave", JSONObject())
+        Unit
+    }
+
+    fun removeMember(conversationId: String, username: String) = authorized { account ->
+        call(account, "DELETE", "/api/v1/conversations/$conversationId/members/$username", null)
+        Unit
+    }
+
+    fun markRead(conversationId: String, seq: Long) = authorized { account ->
+        call(account, "POST", "/api/v1/conversations/$conversationId/read", JSONObject().put("lastReadSeq", seq))
+        Unit
+    }
+
     fun send(conversationId: String, text: String): RemoteMessage = authorized { account ->
         val body = call(
             account,
@@ -203,6 +223,8 @@ class ChatApi @Inject constructor(
             .header("Authorization", "Bearer ${account.accessToken}")
         if (method == "GET") {
             builder.get()
+        } else if (method == "DELETE") {
+            builder.delete()
         } else if (rawBody != null) {
             builder.post(rawBody)
         } else {

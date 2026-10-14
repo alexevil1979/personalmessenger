@@ -41,6 +41,11 @@ class SessionController(private val auth: AuthService) {
     @GetMapping("/me")
     fun me(): UserView = auth.me(currentPrincipal())
 
+    @PostMapping("/me/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun changePassword(@RequestBody body: ChangePasswordRequest) =
+        auth.changePassword(currentPrincipal(), body)
+
     @GetMapping("/sessions")
     fun sessions(): List<SessionView> = auth.sessions(currentPrincipal())
 
@@ -63,4 +68,16 @@ class InvitationController(private val auth: AuthService) {
     @PostMapping("/{id}/revoke")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun revoke(@PathVariable id: UUID) = auth.revokeInvitation(currentPrincipal(), id)
+}
+
+@RestController
+@RequestMapping("/api/v1/admin/users")
+class AdminUserController(private val auth: AuthService) {
+    @GetMapping
+    fun list(): List<AdminUserView> = auth.adminUsers(currentPrincipal())
+
+    @PostMapping("/{username}/status")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun status(@PathVariable username: String, @RequestBody body: SetStatusRequest) =
+        auth.setUserStatus(currentPrincipal(), username, body.status)
 }

@@ -74,6 +74,28 @@ data class CreateInvitationRequest(
     val note: String?,
 )
 
+data class ChangePasswordRequest(
+    val currentPassword: String,
+    val newPassword: String,
+)
+
+data class BlockRequest(val username: String)
+
+data class BlockView(val username: String, val displayName: String)
+
+data class AdminUserView(
+    val id: UUID,
+    val username: String,
+    val displayName: String,
+    val status: String,
+    val role: String?,
+    val createdAt: OffsetDateTime,
+)
+
+data class SetStatusRequest(val status: String)
+
+data class ReadCursor(val lastReadSeq: Long)
+
 data class MessengerPrincipal(
     val userId: UUID,
     val sessionId: UUID,

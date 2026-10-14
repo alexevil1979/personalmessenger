@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionTemplate
 import ru.pm.messenger.identity.ApiException
 import ru.pm.messenger.identity.MessengerPrincipal
+import ru.pm.messenger.identity.ReadCursor
 import ru.pm.messenger.storage.AttachmentService
 import java.sql.ResultSet
 import java.time.OffsetDateTime
@@ -133,8 +134,85 @@ class ChatService(
             .list()
     }
 
+    @Transactional
+    fun leave(principal: MessengerPrincipal, conversationId: UUID) {
+        val membership = membership(principal, conversationId)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "conversation_not_found", "Conversation was not found.")
+        if (membership.second == "group" && membership.first == "owner") {
+            val others = jdbc.sql(
+                """
+                SELECT count(*) FROM conversation_members
+                WHERE conversation_id = :id AND user_id <> :userId AND left_at IS NULL
+                """.trimIndent(),
+            ).param("id", conversationId).param("userId", principal.userId).query(Long::class.java).single()
+            if (others > 0) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "owner_must_stay", "The owner stays while other people are in the group.")
+            }
+        }
+        markLeft(conversationId, principal.userId)
+    }
+
+    @Transactional
+    fun removeMember(principal: MessengerPrincipal, conversationId: UUID, username: String) {
+        val membership = membership(principal, conversationId)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "conversation_not_found", "Conversation was not found.")
+        if (membership.second != "group") {
+            throw ApiException(HttpStatus.BAD_REQUEST, "not_a_group", "Members can be removed only from a group.")
+        }
+        if (membership.first != "owner" && membership.first != "admin") {
+            throw ApiException(HttpStatus.FORBIDDEN, "forbidden", "Access is denied.")
+        }
+        val name = username.trim().lowercase()
+        if (!name.matches(Regex("^[a-z0-9_]{3,32}$"))) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Username is invalid.")
+        }
+        val target = jdbc.sql(
+            """
+            SELECT u.id, me.role
+            FROM users u
+            JOIN conversation_members me ON me.user_id = u.id AND me.conversation_id = :conversationId AND me.left_at IS NULL
+            WHERE u.username = :username AND u.deleted_at IS NULL
+            """.trimIndent(),
+        ).param("conversationId", conversationId).param("username", name)
+            .query { rs, _ -> rs.getObject("id", UUID::class.java) to rs.getString("role") }
+            .optional()
+            .orElse(null)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "user_not_found", "User was not found.")
+        if (target.first == principal.userId) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "cannot_remove_self", "Leave the group instead.")
+        }
+        if (target.second == "owner" || (membership.first == "admin" && target.second == "admin")) {
+            throw ApiException(HttpStatus.FORBIDDEN, "forbidden", "Access is denied.")
+        }
+        markLeft(conversationId, target.first)
+    }
+
+    @Transactional
+    fun markRead(principal: MessengerPrincipal, conversationId: UUID, seq: Long): ReadCursor {
+        requireMember(principal, conversationId)
+        if (seq < 0) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Cursor is invalid.")
+        }
+        val maxSeq = jdbc.sql(
+            """
+            SELECT COALESCE(MAX(seq), 0) FROM messages
+            WHERE conversation_id = :id AND deleted_at IS NULL
+            """.trimIndent(),
+        ).param("id", conversationId).query(Long::class.java).single()
+        val stored = minOf(seq, maxSeq)
+        jdbc.sql(
+            """
+            UPDATE conversation_members
+            SET last_read_seq = GREATEST(COALESCE(last_read_seq, 0), :seq)
+            WHERE conversation_id = :id AND user_id = :userId AND left_at IS NULL
+            """.trimIndent(),
+        ).param("seq", stored).param("id", conversationId).param("userId", principal.userId).update()
+        return ReadCursor(stored)
+    }
+
     fun send(principal: MessengerPrincipal, conversationId: UUID, request: SendMessageRequest): MessageView {
         requireMember(principal, conversationId)
+        rejectBlockedDirect(principal, conversationId)
         val text = request.text.trim()
         val attachment = request.attachmentId?.let { attachments.requireSendable(principal, conversationId, it) }
         if ((text.isEmpty() && attachment == null) || text.length > 4000) {
@@ -234,6 +312,36 @@ class ChatService(
     private fun requireConversation(principal: MessengerPrincipal, conversationId: UUID): ConversationView =
         list(principal).firstOrNull { it.id == conversationId }
             ?: throw ApiException(HttpStatus.NOT_FOUND, "conversation_not_found", "Conversation was not found.")
+
+    private fun markLeft(conversationId: UUID, userId: UUID) {
+        jdbc.sql(
+            """
+            UPDATE conversation_members SET left_at = now()
+            WHERE conversation_id = :conversationId AND user_id = :userId AND left_at IS NULL
+            """.trimIndent(),
+        ).param("conversationId", conversationId).param("userId", userId).update()
+    }
+
+    private fun rejectBlockedDirect(principal: MessengerPrincipal, conversationId: UUID) {
+        val type = jdbc.sql("SELECT type FROM conversations WHERE id = :id")
+            .param("id", conversationId)
+            .query(String::class.java)
+            .optional()
+            .orElse(null) ?: return
+        if (type != "direct") return
+        val peer = jdbc.sql(
+            """
+            SELECT user_id FROM conversation_members
+            WHERE conversation_id = :id AND user_id <> :userId AND left_at IS NULL
+            """.trimIndent(),
+        ).param("id", conversationId).param("userId", principal.userId)
+            .query(UUID::class.java)
+            .optional()
+            .orElse(null) ?: return
+        if (blocked(principal.userId, peer)) {
+            throw ApiException(HttpStatus.FORBIDDEN, "user_blocked", "This person is not available.")
+        }
+    }
 
     private fun requireMember(principal: MessengerPrincipal, conversationId: UUID) {
         val member = jdbc.sql(

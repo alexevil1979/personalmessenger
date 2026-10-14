@@ -31,6 +31,7 @@ data class ChatUi(
     val openType: String = "direct",
     val openRole: String = "member",
     val peerName: String = "",
+    val peerUsername: String = "",
     val errorCode: String? = null,
     val working: Boolean = false,
     val recording: Boolean = false,
@@ -87,6 +88,7 @@ class ChatViewModel @Inject constructor(
                     openType = conversation.type,
                     openRole = conversation.myRole,
                     peerName = conversation.peerDisplayName,
+                    peerUsername = conversation.peerUsername,
                 )
                 sync(conversation.id)
             } catch (error: AuthCallException) {
@@ -97,12 +99,13 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun openConversation(id: String, peerName: String, type: String, role: String) {
+    fun openConversation(id: String, peerName: String, type: String, role: String, peerUsername: String) {
         _state.value = _state.value.copy(
             openId = id,
             openType = type,
             openRole = role,
             peerName = peerName,
+            peerUsername = peerUsername,
             errorCode = null,
         )
         viewModelScope.launch(Dispatchers.IO) { sync(id) }
@@ -122,6 +125,7 @@ class ChatViewModel @Inject constructor(
                     openType = conversation.type,
                     openRole = conversation.myRole,
                     peerName = conversation.peerDisplayName,
+                    peerUsername = conversation.peerUsername,
                 )
                 sync(conversation.id)
             } catch (error: AuthCallException) {
@@ -310,9 +314,57 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun blockOpenPeer() {
+        val name = _state.value.peerUsername
+        if (_state.value.openType != "direct" || name.isBlank() || _state.value.working) return
+        act { chatApi.block(name) }
+    }
+
+    fun leaveOpenGroup() {
+        val conversationId = _state.value.openId ?: return
+        if (_state.value.openType != "group" || _state.value.working) return
+        _state.value = _state.value.copy(working = true, errorCode = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                chatApi.leave(conversationId)
+                _state.value = _state.value.copy(working = false, openId = null, messages = emptyList())
+                refresh()
+            } catch (error: AuthCallException) {
+                _state.value = _state.value.copy(working = false, errorCode = error.code)
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(working = false, errorCode = "network")
+            }
+        }
+    }
+
+    fun removeMember(username: String) {
+        val conversationId = _state.value.openId ?: return
+        val name = username.trim()
+        if (name.isEmpty() || _state.value.working) return
+        act { chatApi.removeMember(conversationId, name) }
+    }
+
+    private fun act(block: () -> Unit) {
+        _state.value = _state.value.copy(working = true, errorCode = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                block()
+                _state.value = _state.value.copy(working = false)
+            } catch (error: AuthCallException) {
+                _state.value = _state.value.copy(working = false, errorCode = error.code)
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(working = false, errorCode = "network")
+            }
+        }
+    }
+
     private fun sync(conversationId: String) {
         val incoming = chatApi.messages(conversationId, chatDao.maxSeq(conversationId))
         incoming.forEach { chatDao.saveMessage(it.toEntity()) }
+        val cursor = chatDao.maxSeq(conversationId)
+        if (cursor > 0) {
+            runCatching { chatApi.markRead(conversationId, cursor) }
+        }
         reloadMessages(conversationId)
     }
 
