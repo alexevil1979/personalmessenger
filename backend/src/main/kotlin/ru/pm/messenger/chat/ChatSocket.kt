@@ -128,7 +128,11 @@ internal fun messageEvent(message: MessageView): String = buildString {
     append(""""kind":${json(message.kind)},""")
     append(""""attachmentId":${message.attachmentId?.let { json(it.toString()) } ?: "null"},""")
     append(""""attachmentName":${message.attachmentName?.let { json(it) } ?: "null"},""")
-    append(""""mimeType":${message.mimeType?.let { json(it) } ?: "null"}""")
+    append(""""mimeType":${message.mimeType?.let { json(it) } ?: "null"},""")
+    append(""""replyToSeq":${message.replyToSeq ?: "null"},""")
+    append(""""replyToUsername":${message.replyToUsername?.let { json(it) } ?: "null"},""")
+    append(""""replyToText":${message.replyToText?.let { json(it) } ?: "null"},""")
+    append(""""edited":${message.edited}""")
     append("}}")
 }
 

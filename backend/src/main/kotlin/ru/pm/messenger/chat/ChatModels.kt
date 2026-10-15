@@ -13,7 +13,10 @@ data class SendMessageRequest(
     val clientMessageId: UUID,
     val text: String = "",
     val attachmentId: UUID? = null,
+    val replyToSeq: Long? = null,
 )
+
+data class EditMessageRequest(val text: String)
 
 data class ConversationView(
     val id: UUID,
@@ -47,4 +50,8 @@ data class MessageView(
     val attachmentId: UUID?,
     val attachmentName: String?,
     val mimeType: String?,
+    val replyToSeq: Long? = null,
+    val replyToUsername: String? = null,
+    val replyToText: String? = null,
+    val edited: Boolean = false,
 )

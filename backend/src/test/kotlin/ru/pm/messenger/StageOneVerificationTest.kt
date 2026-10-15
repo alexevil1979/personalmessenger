@@ -36,7 +36,7 @@ class StageOneVerificationTest {
         assertTrue(body.contains("\"postgres\""))
         assertTrue(body.contains("\"redis\""))
         assertTrue(body.contains("NOT_ENABLED"))
-        assertTrue(body.contains("0.6.3"))
+        assertTrue(body.contains("0.6.4"))
         assertTrue(response.headers().firstValue("X-Correlation-Id").isPresent)
         assertEquals(false, body.contains("ciphertext"))
     }

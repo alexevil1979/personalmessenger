@@ -41,7 +41,14 @@
     <string name="recording_now">Идёт запись</string>
     <string name="delete_message">Удалить</string>
     <string name="delete_message_body">Сообщение исчезнет у всех в этом чате.</string>
-    <string name="error_not_author">Можно удалить только своё сообщение.</string>
+    <string name="error_not_author">Можно изменить или удалить только своё сообщение.</string>
+    <string name="message_actions">Сообщение</string>
+    <string name="reply_message">Ответить</string>
+    <string name="edit_message">Изменить</string>
+    <string name="editing_message">Изменение</string>
+    <string name="edited_mark">изм.</string>
+    <string name="error_reply_missing">Исходное сообщение уже удалено.</string>
+    <string name="error_not_editable">Файл и голосовое сообщение нельзя править.</string>
     <string name="chats_plaintext">Текст и файлы пока читаются сервером. Сквозного шифрования нет.</string>
     <string name="peer_username">Имя собеседника</string>
     <string name="open_chat">Открыть чат</string>

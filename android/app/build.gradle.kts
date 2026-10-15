@@ -14,8 +14,8 @@ android {
         applicationId = "ru.pm.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.6.3"
+        versionCode = 12
+        versionName = "0.6.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "API_BASE_URL", "\"https://pm.1tlt.ru\"")
     }

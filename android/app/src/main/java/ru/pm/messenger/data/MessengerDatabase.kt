@@ -11,7 +11,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-@Database(entities = [ConversationEntity::class, MessageEntity::class], version = 4, exportSchema = false)
+@Database(entities = [ConversationEntity::class, MessageEntity::class], version = 5, exportSchema = false)
 abstract class MessengerDatabase : RoomDatabase() {
     abstract fun chat(): ChatDao
 }

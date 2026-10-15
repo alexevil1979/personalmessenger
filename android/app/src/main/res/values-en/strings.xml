@@ -41,7 +41,14 @@
     <string name="recording_now">Recording</string>
     <string name="delete_message">Delete</string>
     <string name="delete_message_body">The message disappears for everyone in this chat.</string>
-    <string name="error_not_author">Only the author can delete a message.</string>
+    <string name="error_not_author">Only the author can edit or delete a message.</string>
+    <string name="message_actions">Message</string>
+    <string name="reply_message">Reply</string>
+    <string name="edit_message">Edit</string>
+    <string name="editing_message">Editing</string>
+    <string name="edited_mark">edited</string>
+    <string name="error_reply_missing">The original message is already gone.</string>
+    <string name="error_not_editable">A file or voice message cannot be edited.</string>
     <string name="chats_plaintext">The server can currently read text and files. End-to-end encryption is not enabled.</string>
     <string name="peer_username">Username of the other person</string>
     <string name="open_chat">Open chat</string>

@@ -301,6 +301,41 @@ class ChatFlowTest {
         assertTrue(history.body.none { it.path("text").asText() == "удалить меня" })
     }
 
+    @Test
+    @Order(8)
+    fun replyAndAuthorCanEdit() {
+        val original = post(
+            "/api/v1/conversations/$conversationId/messages",
+            mapOf("clientMessageId" to UUID.randomUUID().toString(), "text" to "основа"),
+            alice,
+        )
+        assertEquals(200, original.statusCode(), original.raw)
+        val seq = original.body.path("seq").asLong()
+        val missing = post(
+            "/api/v1/conversations/$conversationId/messages",
+            mapOf("clientMessageId" to UUID.randomUUID().toString(), "text" to "мимо", "replyToSeq" to 999_999),
+            alice,
+        )
+        assertEquals(404, missing.statusCode(), missing.raw)
+        val reply = post(
+            "/api/v1/conversations/$conversationId/messages",
+            mapOf("clientMessageId" to UUID.randomUUID().toString(), "text" to "ответ", "replyToSeq" to seq),
+            bob,
+        )
+        assertEquals(200, reply.statusCode(), reply.raw)
+        assertEquals(seq, reply.body.path("replyToSeq").asLong())
+        assertEquals("основа", reply.body.path("replyToText").asText())
+        assertEquals(403, post("/api/v1/conversations/$conversationId/messages/$seq/edit", mapOf("text" to "чужое"), bob).statusCode())
+        val edited = post("/api/v1/conversations/$conversationId/messages/$seq/edit", mapOf("text" to "основа+"), alice)
+        assertEquals(200, edited.statusCode(), edited.raw)
+        assertEquals("основа+", edited.body.path("text").asText())
+        assertTrue(edited.body.path("edited").asBoolean())
+        val history = get("/api/v1/conversations/$conversationId/messages?afterSeq=0", bob)
+        assertEquals(200, history.statusCode(), history.raw)
+        assertTrue(history.body.any { it.path("text").asText() == "основа+" && it.path("edited").asBoolean() })
+        assertTrue(history.body.any { it.path("text").asText() == "ответ" && it.path("replyToText").asText() == "основа+" })
+    }
+
     private fun seedUser(username: String) {
         jdbc.update(
             "INSERT INTO users (id, username, display_name, password_hash, privacy_policy_accepted_at) VALUES (?, ?, ?, ?, now())",

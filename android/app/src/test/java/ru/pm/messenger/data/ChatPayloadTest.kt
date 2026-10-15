@@ -18,6 +18,21 @@ class ChatPayloadTest {
         assertEquals("bob", message?.senderUsername)
         assertEquals("text", message?.kind)
         assertEquals("", message?.attachmentId)
+        assertEquals(0L, message?.replyToSeq)
+        assertEquals(false, message?.edited)
+    }
+
+    @Test
+    fun parsesReplyAndEdit() {
+        val message = incoming(
+            """
+            {"type":"message","message":{"seq":6,"conversationId":"chat","senderUsername":"bob","clientMessageId":"client","text":"ответ","createdAt":"2026-10-14T12:00:00Z","replyToSeq":4,"replyToUsername":"alice","replyToText":"основа","edited":true}}
+            """.trimIndent(),
+        )
+        assertEquals(4L, message?.replyToSeq)
+        assertEquals("alice", message?.replyToUsername)
+        assertEquals("основа", message?.replyToText)
+        assertEquals(true, message?.edited)
     }
 
     @Test

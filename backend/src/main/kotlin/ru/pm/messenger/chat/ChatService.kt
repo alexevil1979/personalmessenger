@@ -125,11 +125,15 @@ class ChatService(
         return jdbc.sql(
             """
             SELECT m.seq, m.id, m.conversation_id, m.sender_user_id, u.username,
-                   m.client_message_id, m.ciphertext, m.encryption, m.created_at,
-                   m.kind, a.id AS attachment_id, a.original_name, a.mime_type
+                   m.client_message_id, m.ciphertext, m.encryption, m.created_at, m.edited_at,
+                   m.kind, a.id AS attachment_id, a.original_name, a.mime_type,
+                   reply.seq AS reply_seq, reply_user.username AS reply_username,
+                   reply.ciphertext AS reply_ciphertext, reply.encryption AS reply_encryption
             FROM messages m
             JOIN users u ON u.id = m.sender_user_id
             LEFT JOIN attachments a ON a.message_id = m.id
+            LEFT JOIN messages reply ON reply.id = m.reply_to_id AND reply.deleted_at IS NULL
+            LEFT JOIN users reply_user ON reply_user.id = reply.sender_user_id
             WHERE m.conversation_id = :conversationId
               AND m.seq > :afterSeq
               AND m.deleted_at IS NULL
@@ -252,6 +256,99 @@ class ChatService(
         return DeletedMessage(conversationId, seq, row.first)
     }
 
+    @Transactional
+    fun editMessage(principal: MessengerPrincipal, conversationId: UUID, seq: Long, text: String): MessageView {
+        requireMember(principal, conversationId)
+        val clean = text.trim()
+        if (clean.isEmpty() || clean.length > 4000) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Message text is invalid.")
+        }
+        val row = jdbc.sql(
+            """
+            SELECT sender_user_id, kind, deleted_at
+            FROM messages
+            WHERE conversation_id = :conversationId AND seq = :seq
+            """.trimIndent(),
+        ).param("conversationId", conversationId).param("seq", seq)
+            .query { rs, _ ->
+                Triple(
+                    rs.getObject("sender_user_id", UUID::class.java),
+                    rs.getString("kind"),
+                    rs.getObject("deleted_at"),
+                )
+            }
+            .optional()
+            .orElse(null)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "message_not_found", "Message was not found.")
+        if (row.first != principal.userId) {
+            throw ApiException(HttpStatus.FORBIDDEN, "not_message_author", "Only the author can edit a message.")
+        }
+        if (row.third != null) {
+            throw ApiException(HttpStatus.NOT_FOUND, "message_not_found", "Message was not found.")
+        }
+        if (row.second != "text") {
+            throw ApiException(HttpStatus.BAD_REQUEST, "not_editable", "Only a text message can be edited.")
+        }
+        jdbc.sql(
+            """
+            UPDATE messages
+            SET ciphertext = :ciphertext, edited_at = now()
+            WHERE conversation_id = :conversationId AND seq = :seq AND deleted_at IS NULL
+            """.trimIndent(),
+        ).param("ciphertext", clean.toByteArray(Charsets.UTF_8))
+            .param("conversationId", conversationId)
+            .param("seq", seq)
+            .update()
+        jdbc.sql("UPDATE conversations SET updated_at = now() WHERE id = :id")
+            .param("id", conversationId)
+            .update()
+        return visibleMessage(conversationId, seq)
+    }
+
+    private fun replyTarget(conversationId: UUID, seq: Long): ReplyTarget {
+        if (seq <= 0) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Reply target is invalid.")
+        }
+        return jdbc.sql(
+            """
+            SELECT m.id, u.username, m.ciphertext, m.encryption
+            FROM messages m
+            JOIN users u ON u.id = m.sender_user_id
+            WHERE m.conversation_id = :conversationId AND m.seq = :seq AND m.deleted_at IS NULL
+            """.trimIndent(),
+        ).param("conversationId", conversationId).param("seq", seq)
+            .query { rs, _ ->
+                val readable = if (rs.getString("encryption") == "none") {
+                    rs.getBytes("ciphertext")?.toString(Charsets.UTF_8)?.take(80)
+                } else {
+                    null
+                }
+                ReplyTarget(rs.getObject("id", UUID::class.java), seq, rs.getString("username"), readable)
+            }
+            .optional()
+            .orElse(null)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "reply_not_found", "The original message was not found.")
+    }
+
+    private fun visibleMessage(conversationId: UUID, seq: Long): MessageView =
+        jdbc.sql(
+            """
+            SELECT m.seq, m.id, m.conversation_id, m.sender_user_id, u.username,
+                   m.client_message_id, m.ciphertext, m.encryption, m.created_at, m.edited_at,
+                   m.kind, a.id AS attachment_id, a.original_name, a.mime_type,
+                   reply.seq AS reply_seq, reply_user.username AS reply_username,
+                   reply.ciphertext AS reply_ciphertext, reply.encryption AS reply_encryption
+            FROM messages m
+            JOIN users u ON u.id = m.sender_user_id
+            LEFT JOIN attachments a ON a.message_id = m.id
+            LEFT JOIN messages reply ON reply.id = m.reply_to_id AND reply.deleted_at IS NULL
+            LEFT JOIN users reply_user ON reply_user.id = reply.sender_user_id
+            WHERE m.conversation_id = :conversationId AND m.seq = :seq AND m.deleted_at IS NULL
+            """.trimIndent(),
+        ).param("conversationId", conversationId).param("seq", seq)
+            .query { rs, _ -> rs.message() }
+            .single()
+
     fun send(principal: MessengerPrincipal, conversationId: UUID, request: SendMessageRequest): MessageView {
         requireMember(principal, conversationId)
         rejectBlockedDirect(principal, conversationId)
@@ -262,16 +359,17 @@ class ChatService(
         }
         val storedText = text.ifEmpty { attachment!!.originalName }
         val bytes = storedText.toByteArray(Charsets.UTF_8)
+        val reply = request.replyToSeq?.let { replyTarget(conversationId, it) }
         return try {
             write.execute<MessageView> {
             val created = jdbc.sql(
                 """
                 INSERT INTO messages (
                     id, conversation_id, sender_user_id, sender_device_id, client_message_id,
-                    kind, encryption, ciphertext
+                    reply_to_id, kind, encryption, ciphertext
                 ) VALUES (
                     :id, :conversationId, :senderUserId, :senderDeviceId, :clientMessageId,
-                    :kind, 'none', :ciphertext
+                    CASE WHEN :hasReply THEN :replyToId ELSE NULL END, :kind, 'none', :ciphertext
                 )
                 RETURNING seq, id, created_at
                 """.trimIndent(),
@@ -280,6 +378,8 @@ class ChatService(
                 .param("senderUserId", principal.userId)
                 .param("senderDeviceId", principal.deviceId)
                 .param("clientMessageId", request.clientMessageId)
+                .param("hasReply", reply != null)
+                .param("replyToId", reply?.id ?: UUID(0, 0))
                 .param("kind", attachment?.kind ?: "text")
                 .param("ciphertext", bytes)
                 .query { rs, _ ->
@@ -306,6 +406,9 @@ class ChatService(
                 attachmentId = attachment?.id,
                 attachmentName = attachment?.originalName,
                 mimeType = attachment?.mimeType,
+                replyToSeq = reply?.seq,
+                replyToUsername = reply?.username,
+                replyToText = reply?.text,
             )
             } ?: throw ApiException(HttpStatus.CONFLICT, "client_message_id", "Message identity is already used.")
         } catch (_: DataIntegrityViolationException) {
@@ -332,11 +435,15 @@ class ChatService(
         val message = jdbc.sql(
             """
             SELECT m.seq, m.id, m.conversation_id, m.sender_user_id, u.username,
-                   m.client_message_id, m.ciphertext, m.encryption, m.created_at,
-                   m.kind, a.id AS attachment_id, a.original_name, a.mime_type
+                   m.client_message_id, m.ciphertext, m.encryption, m.created_at, m.edited_at,
+                   m.kind, a.id AS attachment_id, a.original_name, a.mime_type,
+                   reply.seq AS reply_seq, reply_user.username AS reply_username,
+                   reply.ciphertext AS reply_ciphertext, reply.encryption AS reply_encryption
             FROM messages m
             JOIN users u ON u.id = m.sender_user_id
             LEFT JOIN attachments a ON a.message_id = m.id
+            LEFT JOIN messages reply ON reply.id = m.reply_to_id AND reply.deleted_at IS NULL
+            LEFT JOIN users reply_user ON reply_user.id = reply.sender_user_id
             WHERE m.sender_device_id = :deviceId AND m.client_message_id = :clientMessageId
             """.trimIndent(),
         ).param("deviceId", principal.deviceId)
@@ -525,6 +632,14 @@ class ChatService(
             attachmentId = getString("attachment_id")?.let(UUID::fromString),
             attachmentName = getString("original_name"),
             mimeType = getString("mime_type"),
+            replyToSeq = getObject("reply_seq")?.let { getLong("reply_seq") },
+            replyToUsername = getString("reply_username"),
+            replyToText = if (getString("reply_encryption") == "none") {
+                getBytes("reply_ciphertext")?.toString(Charsets.UTF_8)?.take(80)
+            } else {
+                null
+            },
+            edited = getObject("edited_at") != null,
         )
     }
 
@@ -533,6 +648,8 @@ class ChatService(
     private fun ResultSet.time(column: String): OffsetDateTime = getObject(column, OffsetDateTime::class.java)
 
     private data class StoredPeer(val id: UUID, val username: String, val displayName: String)
+
+    private data class ReplyTarget(val id: UUID, val seq: Long, val username: String, val text: String?)
 }
 
 internal fun directKey(first: UUID, second: UUID): String {

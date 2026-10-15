@@ -300,14 +300,34 @@ class ChatViewModel @Inject constructor(
         _state.value = _state.value.copy(downloadUrl = null)
     }
 
-    fun send(text: String) {
+    fun send(text: String, replyToSeq: Long? = null) {
         val conversationId = _state.value.openId ?: return
         val body = text.trim()
         if (body.isEmpty() || _state.value.working) return
         _state.value = _state.value.copy(working = true, errorCode = null)
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val saved = chatApi.send(conversationId, body)
+                val saved = chatApi.send(conversationId, body, replyToSeq)
+                chatDao.saveMessage(saved.toEntity())
+                reloadMessages(conversationId)
+                refresh()
+                _state.value = _state.value.copy(working = false)
+            } catch (error: AuthCallException) {
+                _state.value = _state.value.copy(working = false, errorCode = error.code)
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(working = false, errorCode = "network")
+            }
+        }
+    }
+
+    fun editMessage(seq: Long, text: String) {
+        val conversationId = _state.value.openId ?: return
+        val body = text.trim()
+        if (body.isEmpty() || seq <= 0 || _state.value.working) return
+        _state.value = _state.value.copy(working = true, errorCode = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val saved = chatApi.editMessage(conversationId, seq, body)
                 chatDao.saveMessage(saved.toEntity())
                 reloadMessages(conversationId)
                 refresh()
@@ -401,8 +421,15 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun sync(conversationId: String) {
-        val incoming = chatApi.messages(conversationId, chatDao.maxSeq(conversationId))
-        incoming.forEach { chatDao.saveMessage(it.toEntity()) }
+        var after = (chatDao.maxSeq(conversationId) - 200).coerceAtLeast(0)
+        repeat(3) {
+            val page = chatApi.messages(conversationId, after)
+            if (page.isEmpty()) return@repeat
+            page.forEach { chatDao.saveMessage(it.toEntity()) }
+            val last = page.last().seq
+            if (page.size < 200 || last <= after) return@repeat
+            after = last
+        }
         val cursor = chatDao.maxSeq(conversationId)
         if (cursor > 0) {
             runCatching { chatApi.markRead(conversationId, cursor) }
@@ -478,4 +505,8 @@ private fun ru.pm.messenger.data.RemoteMessage.toEntity() = MessageEntity(
     kind = kind,
     attachmentId = attachmentId,
     attachmentName = attachmentName,
+    replyToSeq = replyToSeq,
+    replyToUsername = replyToUsername,
+    replyToText = replyToText,
+    edited = edited,
 )

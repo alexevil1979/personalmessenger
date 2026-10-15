@@ -35,6 +35,10 @@ data class MessageEntity(
     val kind: String,
     val attachmentId: String,
     val attachmentName: String,
+    val replyToSeq: Long = 0,
+    val replyToUsername: String = "",
+    val replyToText: String = "",
+    val edited: Boolean = false,
 )
 
 @Dao

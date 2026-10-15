@@ -61,6 +61,17 @@ class ChatController(
         live.publishRaw(deletedEvent(deleted), chat.memberIds(id))
     }
 
+    @PostMapping("/{id}/messages/{seq}/edit")
+    fun edit(
+        @PathVariable id: UUID,
+        @PathVariable seq: Long,
+        @RequestBody body: EditMessageRequest,
+    ): MessageView {
+        val message = chat.editMessage(currentPrincipal(), id, seq, body.text)
+        live.publish(message, chat.memberIds(id))
+        return message
+    }
+
     @PostMapping("/{id}/messages")
     fun send(@PathVariable id: UUID, @RequestBody body: SendMessageRequest): MessageView {
         val message = chat.send(currentPrincipal(), id, body)

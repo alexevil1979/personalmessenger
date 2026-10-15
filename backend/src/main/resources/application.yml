@@ -42,10 +42,10 @@ management:
 info:
   app:
     name: personal-messenger
-    version: 0.6.3
+    version: 0.6.4
 
 app:
-  version: 0.6.3
+  version: 0.6.4
   auth:
     access-ttl: 15m
     refresh-ttl: 30d

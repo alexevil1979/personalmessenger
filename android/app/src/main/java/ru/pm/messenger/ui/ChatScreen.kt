@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -311,6 +312,9 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
     var draft by rememberSaveable { mutableStateOf("") }
     var memberName by rememberSaveable { mutableStateOf("") }
     var menu by rememberSaveable { mutableStateOf(false) }
+    var action by remember { mutableStateOf<MessageEntity?>(null) }
+    var reply by remember { mutableStateOf<MessageEntity?>(null) }
+    var editing by remember { mutableStateOf<MessageEntity?>(null) }
     var pendingDelete by remember { mutableStateOf<Long?>(null) }
     val context = LocalContext.current
     val listState = rememberLazyListState()
@@ -400,7 +404,7 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
                         message = row.message,
                         mine = row.message.senderUsername.equals(myUsername, ignoreCase = true),
                         onAttachment = { viewModel.openAttachment(row.message.attachmentId) },
-                        onDelete = { seq -> pendingDelete = seq },
+                        onAction = { action = it },
                     )
                 }
             }
@@ -441,10 +445,28 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
             draft = draft,
             recording = state.recording,
             enabled = !state.working,
+            quoteTitle = when {
+                editing != null -> stringResource(R.string.editing_message)
+                reply != null -> reply?.senderUsername.orEmpty()
+                else -> null
+            },
+            quoteBody = if (editing != null) null else reply?.previewLine(),
+            onClearQuote = {
+                editing = null
+                reply = null
+            },
             onDraft = { draft = it },
             onSend = {
-                viewModel.send(draft)
+                val target = editing
+                val quoted = reply
+                if (target?.seq != null && target.seq > 0) {
+                    viewModel.editMessage(target.seq, draft)
+                } else {
+                    viewModel.send(draft, quoted?.seq?.takeIf { it > 0 })
+                }
                 draft = ""
+                editing = null
+                reply = null
             },
             onAttach = { pickFile.launch("*/*") },
             onMic = {
@@ -455,6 +477,44 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
                 } else {
                     askMic.launch(Manifest.permission.RECORD_AUDIO)
                 }
+            },
+        )
+    }
+    action?.let { message ->
+        val mine = message.senderUsername.equals(myUsername, ignoreCase = true)
+        val seq = message.seq
+        val canEdit = mine && message.kind == "text" && message.attachmentId.isBlank() && seq != null && seq > 0
+        AlertDialog(
+            onDismissRequest = { action = null },
+            containerColor = Tg.bars,
+            title = { Text(stringResource(R.string.message_actions), color = Tg.text) },
+            text = {
+                Column {
+                    if (seq != null && seq > 0) {
+                        TextButton(onClick = {
+                            reply = message
+                            editing = null
+                            action = null
+                        }) { Text(stringResource(R.string.reply_message), color = Tg.accentBright) }
+                    }
+                    if (canEdit) {
+                        TextButton(onClick = {
+                            editing = message
+                            reply = null
+                            draft = message.text
+                            action = null
+                        }) { Text(stringResource(R.string.edit_message), color = Tg.text) }
+                    }
+                    if (mine && seq != null && seq > 0) {
+                        TextButton(onClick = {
+                            pendingDelete = seq
+                            action = null
+                        }) { Text(stringResource(R.string.delete_message), color = Tg.danger) }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { action = null }) { Text(stringResource(R.string.back_to_chats), color = Tg.secondary) }
             },
         )
     }
@@ -482,13 +542,35 @@ private fun Composer(
     draft: String,
     recording: Boolean,
     enabled: Boolean,
+    quoteTitle: String?,
+    quoteBody: String?,
+    onClearQuote: () -> Unit,
     onDraft: (String) -> Unit,
     onSend: () -> Unit,
     onAttach: () -> Unit,
     onMic: () -> Unit,
 ) {
+    Column(Modifier.fillMaxWidth().background(Tg.bars)) {
+        if (!quoteTitle.isNullOrBlank() || !quoteBody.isNullOrBlank()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    if (!quoteTitle.isNullOrBlank()) {
+                        Text(quoteTitle, color = Tg.accentBright, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (!quoteBody.isNullOrBlank()) {
+                        Text(quoteBody, color = Tg.secondary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                IconButton(onClick = onClearQuote) {
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.back_to_chats), tint = Tg.secondary)
+                }
+            }
+        }
     Row(
-        modifier = Modifier.fillMaxWidth().background(Tg.bars).padding(horizontal = 4.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
         IconButton(onClick = onAttach, enabled = enabled && !recording) {
@@ -528,6 +610,7 @@ private fun Composer(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -548,13 +631,15 @@ private fun MessageBubble(
     message: MessageEntity,
     mine: Boolean,
     onAttachment: () -> Unit,
-    onDelete: (Long) -> Unit,
+    onAction: (MessageEntity) -> Unit,
 ) {
+    val attachment = message.attachmentName.takeUnless { it.isBlank() || it == "null" }.orEmpty()
+    val bodyText = message.text.takeUnless { it == "null" }.orEmpty()
     val body = when {
-        message.kind == "voice" && message.attachmentName.isNotBlank() -> message.attachmentName
-        message.attachmentName.isNotBlank() && message.text != message.attachmentName -> "${message.attachmentName}\n${message.text}"
-        message.attachmentName.isNotBlank() -> message.attachmentName
-        else -> message.text
+        message.kind == "voice" && attachment.isNotBlank() -> attachment
+        attachment.isNotBlank() && bodyText != attachment -> "$attachment\n$bodyText"
+        attachment.isNotBlank() -> attachment
+        else -> bodyText
     }
     Box(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Column(
@@ -574,7 +659,7 @@ private fun MessageBubble(
                     onClick = { if (message.attachmentId.isNotBlank()) onAttachment() },
                     onLongClick = {
                         val seq = message.seq
-                        if (mine && seq != null && seq > 0) onDelete(seq)
+                        if (seq != null && seq > 0) onAction(message)
                     },
                 )
                 .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -582,13 +667,31 @@ private fun MessageBubble(
             if (!mine && message.senderUsername.isNotBlank()) {
                 Text(message.senderUsername, color = Tg.accentBright, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
+            if (message.replyToText.isNotBlank() || message.replyToUsername.isNotBlank()) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Tg.bg)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    if (message.replyToUsername.isNotBlank()) {
+                        Text(message.replyToUsername, color = Tg.accentBright, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (message.replyToText.isNotBlank()) {
+                        Text(message.replyToText, color = Tg.secondary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
             if (body.isNotBlank()) Text(body, color = Tg.text, fontSize = 16.sp)
-            Text(
-                formatBubbleTime(message.createdAt),
-                color = Tg.secondary,
-                fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.End).padding(top = 2.dp),
-            )
+            Row(Modifier.align(Alignment.End).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (message.edited) {
+                    Text(stringResource(R.string.edited_mark), color = Tg.secondary, fontSize = 11.sp)
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(formatBubbleTime(message.createdAt), color = Tg.secondary, fontSize = 11.sp)
+            }
         }
     }
 }
@@ -617,6 +720,13 @@ private fun rowsOf(messages: List<MessageEntity>): List<ChatRow> {
     return rows
 }
 
+private fun MessageEntity.previewLine(): String {
+    val attachment = attachmentName.takeUnless { it.isBlank() || it == "null" }.orEmpty()
+    val body = text.takeUnless { it == "null" }.orEmpty()
+    val value = if (attachment.isNotBlank()) attachment else body
+    return value.lineSequence().firstOrNull().orEmpty()
+}
+
 private fun chatError(code: String): Int = when (code) {
     "user_not_found" -> R.string.error_user_missing
     "cannot_message_self" -> R.string.error_self
@@ -631,6 +741,8 @@ private fun chatError(code: String): Int = when (code) {
     "owner_must_stay" -> R.string.error_owner_stays
     "cannot_remove_self" -> R.string.error_remove_self
     "not_message_author" -> R.string.error_not_author
+    "reply_not_found" -> R.string.error_reply_missing
+    "not_editable" -> R.string.error_not_editable
     "message_not_found" -> R.string.error_generic
     "network" -> R.string.error_network
     else -> R.string.error_generic

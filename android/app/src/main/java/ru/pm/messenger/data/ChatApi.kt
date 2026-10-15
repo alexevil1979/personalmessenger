@@ -34,6 +34,10 @@ data class RemoteMessage(
     val kind: String,
     val attachmentId: String,
     val attachmentName: String,
+    val replyToSeq: Long,
+    val replyToUsername: String,
+    val replyToText: String,
+    val edited: Boolean,
 )
 
 data class RemoteAttachment(
@@ -47,12 +51,21 @@ fun parseRemoteMessage(json: JSONObject): RemoteMessage = RemoteMessage(
     conversationId = json.getString("conversationId"),
     senderUsername = json.getString("senderUsername"),
     clientMessageId = json.getString("clientMessageId"),
-    text = json.optString("text"),
+    text = json.clean("text"),
     createdAt = json.optString("createdAt"),
     kind = json.optString("kind", "text"),
-    attachmentId = json.optString("attachmentId"),
-    attachmentName = json.optString("attachmentName"),
+    attachmentId = json.clean("attachmentId"),
+    attachmentName = json.clean("attachmentName"),
+    replyToSeq = if (!json.has("replyToSeq") || json.isNull("replyToSeq")) 0L else json.optLong("replyToSeq"),
+    replyToUsername = json.clean("replyToUsername"),
+    replyToText = json.clean("replyToText"),
+    edited = json.optBoolean("edited", false),
 )
+
+private fun JSONObject.clean(key: String): String {
+    if (!has(key) || isNull(key)) return ""
+    return optString(key).takeUnless { it == "null" }.orEmpty()
+}
 
 fun parseConversation(item: JSONObject) = RemoteConversation(
     id = item.getString("id"),
@@ -208,12 +221,19 @@ class ChatApi @Inject constructor(
         Unit
     }
 
-    fun send(conversationId: String, text: String): RemoteMessage = authorized { account ->
+    fun send(conversationId: String, text: String, replyToSeq: Long? = null): RemoteMessage = authorized { account ->
+        val payload = JSONObject().put("clientMessageId", UUID.randomUUID().toString()).put("text", text)
+        if (replyToSeq != null && replyToSeq > 0) payload.put("replyToSeq", replyToSeq)
+        val body = call(account, "POST", "/api/v1/conversations/$conversationId/messages", payload)
+        parseRemoteMessage(JSONObject(body))
+    }
+
+    fun editMessage(conversationId: String, seq: Long, text: String): RemoteMessage = authorized { account ->
         val body = call(
             account,
             "POST",
-            "/api/v1/conversations/$conversationId/messages",
-            JSONObject().put("clientMessageId", UUID.randomUUID().toString()).put("text", text),
+            "/api/v1/conversations/$conversationId/messages/$seq/edit",
+            JSONObject().put("text", text),
         )
         parseRemoteMessage(JSONObject(body))
     }

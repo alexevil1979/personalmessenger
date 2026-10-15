@@ -90,7 +90,7 @@ OpenAPI: `GET /v3/api-docs`, UI: `GET /swagger-ui.html`.
 | Метод | Путь | Доступ |
 | --- | --- | --- |
 | POST | `/api/v1/conversations/{id}/attachments` | участник, поле `file` |
-| POST | `/api/v1/conversations/{id}/messages` | можно передать `attachmentId` |
+| POST | `/api/v1/conversations/{id}/messages` | можно передать `attachmentId` и `replyToSeq` |
 | POST | `/api/v1/attachments/{id}/link` | участник чата, ссылка на скачивание |
 | GET | `/api/v1/attachments/{id}/content?ticket=` | билет из ссылки, без сессии, до `expiresAt` |
 
@@ -107,6 +107,7 @@ OpenAPI: `GET /v3/api-docs`, UI: `GET /swagger-ui.html`.
 | DELETE | `/api/v1/conversations/{id}/members/{username}` | `owner` или `admin` |
 | POST | `/api/v1/conversations/{id}/read` | участник, тело `{lastReadSeq}` |
 | DELETE | `/api/v1/conversations/{id}/messages/{seq}` | автор сообщения |
+| POST | `/api/v1/conversations/{id}/messages/{seq}/edit` | автор, только текст, тело `{text}` |
 | GET | `/api/v1/admin/users` | `owner` и `admin` |
 | POST | `/api/v1/admin/users/{username}/status` | тело `{status}`: `active` или `blocked` |
 
