@@ -34,6 +34,9 @@ data class ChatUi(
     val peerName: String = "",
     val peerUsername: String = "",
     val peerBlocked: Boolean = false,
+    val peerLastReadSeq: Long = 0,
+    val peerLastSeenAt: String = "",
+    val peerOnline: Boolean = false,
     val errorCode: String? = null,
     val working: Boolean = false,
     val recording: Boolean = false,
@@ -72,6 +75,20 @@ class ChatViewModel @Inject constructor(
                         if (event.seq > 0) chatDao.deleteBySeq(event.conversationId, event.seq)
                         if (_state.value.openId == event.conversationId) reloadMessages(event.conversationId)
                     }
+                    is SocketEvent.Read -> {
+                        val mine = event.username.equals(chatApi.accountUsername(), ignoreCase = true)
+                        if (!mine && _state.value.openId == event.conversationId && _state.value.peerUsername.equals(event.username, ignoreCase = true)) {
+                            _state.value = _state.value.copy(
+                                peerLastReadSeq = maxOf(_state.value.peerLastReadSeq, event.lastReadSeq),
+                            )
+                        }
+                    }
+                    is SocketEvent.Presence -> {
+                        val mine = event.username.equals(chatApi.accountUsername(), ignoreCase = true)
+                        if (!mine && _state.value.peerUsername.equals(event.username, ignoreCase = true)) {
+                            _state.value = _state.value.copy(peerOnline = event.online)
+                        }
+                    }
                 }
                 refresh()
             }
@@ -104,6 +121,9 @@ class ChatViewModel @Inject constructor(
                     peerName = conversation.peerDisplayName,
                     peerUsername = conversation.peerUsername,
                     peerBlocked = false,
+                    peerLastReadSeq = conversation.peerLastReadSeq,
+                    peerLastSeenAt = conversation.peerLastSeenAt,
+                    peerOnline = conversation.peerOnline,
                 )
                 sync(conversation.id)
                 refreshBlock(conversation.id, conversation.peerUsername)
@@ -116,6 +136,7 @@ class ChatViewModel @Inject constructor(
     }
 
     fun openConversation(id: String, peerName: String, type: String, role: String, peerUsername: String) {
+        val known = _state.value.conversations.firstOrNull { it.id == id }
         _state.value = _state.value.copy(
             openId = id,
             openType = type,
@@ -123,6 +144,9 @@ class ChatViewModel @Inject constructor(
             peerName = peerName,
             peerUsername = peerUsername,
             peerBlocked = false,
+            peerLastReadSeq = known?.peerLastReadSeq ?: 0,
+            peerLastSeenAt = known?.peerLastSeenAt.orEmpty(),
+            peerOnline = known?.peerOnline ?: false,
             errorCode = null,
         )
         viewModelScope.launch(Dispatchers.IO) { sync(id) }
@@ -145,6 +169,9 @@ class ChatViewModel @Inject constructor(
                     peerName = conversation.peerDisplayName,
                     peerUsername = conversation.peerUsername,
                     peerBlocked = false,
+                    peerLastReadSeq = conversation.peerLastReadSeq,
+                    peerLastSeenAt = conversation.peerLastSeenAt,
+                    peerOnline = conversation.peerOnline,
                 )
                 sync(conversation.id)
             } catch (error: AuthCallException) {
@@ -346,7 +373,15 @@ class ChatViewModel @Inject constructor(
                 val remote = chatApi.conversations()
                 chatDao.clearConversations()
                 chatDao.saveConversations(remote.map { it.toEntity() })
-                _state.value = _state.value.copy(conversations = chatDao.conversations(), errorCode = null)
+                val items = chatDao.conversations()
+                val open = items.firstOrNull { it.id == _state.value.openId }
+                _state.value = _state.value.copy(
+                    conversations = items,
+                    errorCode = null,
+                    peerLastReadSeq = open?.peerLastReadSeq ?: _state.value.peerLastReadSeq,
+                    peerLastSeenAt = open?.peerLastSeenAt ?: _state.value.peerLastSeenAt,
+                    peerOnline = open?.peerOnline ?: _state.value.peerOnline,
+                )
             } catch (_: Exception) {
                 _state.value = _state.value.copy(conversations = chatDao.conversations())
             }
@@ -492,6 +527,9 @@ private fun ru.pm.messenger.data.RemoteConversation.toEntity() = ConversationEnt
     preview = preview,
     updatedAt = updatedAt,
     unreadCount = unreadCount,
+    peerLastReadSeq = peerLastReadSeq,
+    peerLastSeenAt = peerLastSeenAt,
+    peerOnline = peerOnline,
 )
 
 private fun ru.pm.messenger.data.RemoteMessage.toEntity() = MessageEntity(

@@ -56,7 +56,17 @@ class ChatPayloadTest {
 
     @Test
     fun ignoresOtherEvents() {
-        assertNull(parseSocketEvent("""{"type":"presence"}"""))
+        assertNull(parseSocketEvent("""{"type":"typing"}"""))
+    }
+
+    @Test
+    fun parsesReadAndPresence() {
+        val read = parseSocketEvent("""{"type":"read","conversationId":"chat","username":"bob","lastReadSeq":4}""")
+        assertTrue(read is SocketEvent.Read)
+        assertEquals(4L, (read as SocketEvent.Read).lastReadSeq)
+        val presence = parseSocketEvent("""{"type":"presence","username":"bob","online":true}""")
+        assertTrue(presence is SocketEvent.Presence)
+        assertEquals(true, (presence as SocketEvent.Presence).online)
     }
 
     private fun incoming(body: String) = (parseSocketEvent(body) as? SocketEvent.Incoming)?.message

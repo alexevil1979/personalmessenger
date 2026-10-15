@@ -20,6 +20,7 @@ import java.util.UUID
 class ChatService(
     private val jdbc: JdbcClient,
     private val attachments: AttachmentService,
+    private val live: LiveSessions,
     transactionManager: PlatformTransactionManager,
 ) {
     private val write = TransactionTemplate(transactionManager)
@@ -93,7 +94,10 @@ class ChatService(
                          AND unread.deleted_at IS NULL
                          AND unread.sender_user_id <> me.user_id
                          AND unread.seq > COALESCE(me.last_read_seq, 0)
-                   ), 0) AS unread_count
+                   ), 0) AS unread_count,
+                   COALESCE(other.last_read_seq, 0) AS peer_last_read_seq,
+                   u.last_seen_at AS peer_last_seen_at,
+                   other.user_id AS peer_user_id
             FROM conversation_members me
             JOIN conversations c ON c.id = me.conversation_id
             LEFT JOIN conversation_members other
@@ -212,6 +216,12 @@ class ChatService(
             """.trimIndent(),
         ).param("id", conversationId).query(Long::class.java).single()
         val stored = minOf(seq, maxSeq)
+        val previous = jdbc.sql(
+            """
+            SELECT COALESCE(last_read_seq, 0) FROM conversation_members
+            WHERE conversation_id = :id AND user_id = :userId AND left_at IS NULL
+            """.trimIndent(),
+        ).param("id", conversationId).param("userId", principal.userId).query(Long::class.java).single()
         jdbc.sql(
             """
             UPDATE conversation_members
@@ -219,8 +229,47 @@ class ChatService(
             WHERE conversation_id = :id AND user_id = :userId AND left_at IS NULL
             """.trimIndent(),
         ).param("seq", stored).param("id", conversationId).param("userId", principal.userId).update()
+        jdbc.sql(
+            """
+            INSERT INTO message_receipts (message_seq, user_id, status)
+            SELECT m.seq, :userId, 'read'
+            FROM messages m
+            WHERE m.conversation_id = :id
+              AND m.seq > :previous
+              AND m.seq <= :seq
+              AND m.sender_user_id <> :userId
+              AND m.deleted_at IS NULL
+            ON CONFLICT (message_seq, user_id) DO UPDATE
+            SET status = 'read', updated_at = now()
+            """.trimIndent(),
+        ).param("userId", principal.userId)
+            .param("id", conversationId)
+            .param("previous", previous)
+            .param("seq", stored)
+            .update()
+        notePresence(principal.userId)
         return ReadCursor(stored)
     }
+
+    fun notePresence(userId: UUID) {
+        jdbc.sql("UPDATE users SET last_seen_at = now() WHERE id = :id").param("id", userId).update()
+    }
+
+    fun username(userId: UUID): String = usernameOf(userId)
+
+    fun directPeerIds(userId: UUID): List<UUID> =
+        jdbc.sql(
+            """
+            SELECT other.user_id
+            FROM conversation_members me
+            JOIN conversations c ON c.id = me.conversation_id AND c.type = 'direct'
+            JOIN conversation_members other
+              ON other.conversation_id = c.id
+             AND other.user_id <> me.user_id
+             AND other.left_at IS NULL
+            WHERE me.user_id = :userId AND me.left_at IS NULL
+            """.trimIndent(),
+        ).param("userId", userId).query(UUID::class.java).list().filterNotNull()
 
     @Transactional
     fun deleteMessage(principal: MessengerPrincipal, conversationId: UUID, seq: Long): DeletedMessage {
@@ -608,6 +657,9 @@ class ChatService(
             preview = preview,
             updatedAt = time("updated_at"),
             unreadCount = getInt("unread_count"),
+            peerLastReadSeq = if (getObject("peer_last_read_seq") == null) 0 else getLong("peer_last_read_seq"),
+            peerLastSeenAt = getObject("peer_last_seen_at")?.let { time("peer_last_seen_at") },
+            peerOnline = getObject("peer_user_id", UUID::class.java)?.let { live.online(it) } ?: false,
         )
     }
 

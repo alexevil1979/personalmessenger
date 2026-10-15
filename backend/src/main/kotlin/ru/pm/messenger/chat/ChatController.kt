@@ -42,8 +42,12 @@ class ChatController(
     fun leave(@PathVariable id: UUID) = chat.leave(currentPrincipal(), id)
 
     @PostMapping("/{id}/read")
-    fun read(@PathVariable id: UUID, @RequestBody body: ReadCursor): ReadCursor =
-        chat.markRead(currentPrincipal(), id, body.lastReadSeq)
+    fun read(@PathVariable id: UUID, @RequestBody body: ReadCursor): ReadCursor {
+        val principal = currentPrincipal()
+        val cursor = chat.markRead(principal, id, body.lastReadSeq)
+        live.publishRaw(readEvent(id, chat.username(principal.userId), cursor.lastReadSeq), chat.memberIds(id))
+        return cursor
+    }
 
     @GetMapping
     fun list(): List<ConversationView> = chat.list(currentPrincipal())

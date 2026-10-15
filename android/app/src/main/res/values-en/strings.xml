@@ -38,6 +38,8 @@
     <string name="empty_chats">No chats yet</string>
     <string name="nothing_found">Nothing found</string>
     <string name="group_subtitle">group</string>
+    <string name="peer_online">online</string>
+    <string name="peer_last_seen">last seen %1$s</string>
     <string name="recording_now">Recording</string>
     <string name="delete_message">Delete</string>
     <string name="delete_message_body">The message disappears for everyone in this chat.</string>

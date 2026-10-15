@@ -18,6 +18,9 @@ data class ConversationEntity(
     val preview: String,
     val updatedAt: String,
     val unreadCount: Int,
+    val peerLastReadSeq: Long = 0,
+    val peerLastSeenAt: String = "",
+    val peerOnline: Boolean = false,
 )
 
 @Entity(

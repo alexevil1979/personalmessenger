@@ -28,6 +28,9 @@ data class ConversationView(
     val preview: String?,
     val updatedAt: OffsetDateTime,
     val unreadCount: Int = 0,
+    val peerLastReadSeq: Long = 0,
+    val peerLastSeenAt: OffsetDateTime? = null,
+    val peerOnline: Boolean = false,
 )
 
 data class DeletedMessage(

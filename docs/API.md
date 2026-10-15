@@ -105,7 +105,7 @@ OpenAPI: `GET /v3/api-docs`, UI: `GET /swagger-ui.html`.
 | DELETE | `/api/v1/blocks/{username}` | своя блокировка |
 | POST | `/api/v1/conversations/{id}/leave` | участник |
 | DELETE | `/api/v1/conversations/{id}/members/{username}` | `owner` или `admin` |
-| POST | `/api/v1/conversations/{id}/read` | участник, тело `{lastReadSeq}` |
+| POST | `/api/v1/conversations/{id}/read` | участник, тело `{lastReadSeq}`; чужие сообщения до этого номера становятся `read` |
 | DELETE | `/api/v1/conversations/{id}/messages/{seq}` | автор сообщения |
 | POST | `/api/v1/conversations/{id}/messages/{seq}/edit` | автор, только текст, тело `{text}` |
 | GET | `/api/v1/admin/users` | `owner` и `admin` |

@@ -336,6 +336,32 @@ class ChatFlowTest {
         assertTrue(history.body.any { it.path("text").asText() == "ответ" && it.path("replyToText").asText() == "основа+" })
     }
 
+    @Test
+    @Order(9)
+    fun peerReadCursorAndReceipt() {
+        val sent = post(
+            "/api/v1/conversations/$conversationId/messages",
+            mapOf("clientMessageId" to UUID.randomUUID().toString(), "text" to "прочитай"),
+            alice,
+        )
+        assertEquals(200, sent.statusCode(), sent.raw)
+        val seq = sent.body.path("seq").asLong()
+        val read = post("/api/v1/conversations/$conversationId/read", mapOf("lastReadSeq" to seq), bob)
+        assertEquals(200, read.statusCode(), read.raw)
+        val listed = get("/api/v1/conversations", alice)
+        assertEquals(200, listed.statusCode(), listed.raw)
+        val row = listed.body.find { it.path("id").asText() == conversationId }
+        assertTrue((row?.path("peerLastReadSeq")?.asLong() ?: 0) >= seq, listed.raw)
+        assertTrue(row?.path("peerLastSeenAt")?.asText().orEmpty().isNotBlank(), listed.raw)
+        assertEquals(false, row?.path("peerOnline")?.asBoolean())
+        val receipts = jdbc.queryForObject(
+            "SELECT count(*) FROM message_receipts WHERE message_seq = ? AND status = 'read'",
+            Long::class.java,
+            seq,
+        )
+        assertEquals(1L, receipts)
+    }
+
     private fun seedUser(username: String) {
         jdbc.update(
             "INSERT INTO users (id, username, display_name, password_hash, privacy_policy_accepted_at) VALUES (?, ?, ?, ?, now())",

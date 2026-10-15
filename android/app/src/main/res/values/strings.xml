@@ -38,6 +38,8 @@
     <string name="empty_chats">Пока нет чатов</string>
     <string name="nothing_found">Ничего не нашлось</string>
     <string name="group_subtitle">группа</string>
+    <string name="peer_online">в сети</string>
+    <string name="peer_last_seen">был(а) %1$s</string>
     <string name="recording_now">Идёт запись</string>
     <string name="delete_message">Удалить</string>
     <string name="delete_message_body">Сообщение исчезнет у всех в этом чате.</string>

@@ -22,6 +22,9 @@ data class RemoteConversation(
     val preview: String,
     val updatedAt: String,
     val unreadCount: Int,
+    val peerLastReadSeq: Long,
+    val peerLastSeenAt: String,
+    val peerOnline: Boolean,
 )
 
 data class RemoteMessage(
@@ -76,6 +79,9 @@ fun parseConversation(item: JSONObject) = RemoteConversation(
     preview = item.optString("preview").takeUnless { it == "null" }.orEmpty(),
     updatedAt = item.optString("updatedAt"),
     unreadCount = item.optInt("unreadCount"),
+    peerLastReadSeq = item.optLong("peerLastReadSeq"),
+    peerLastSeenAt = item.clean("peerLastSeenAt"),
+    peerOnline = item.optBoolean("peerOnline"),
 )
 
 fun parseSocketEvent(body: String): SocketEvent? {
@@ -87,6 +93,15 @@ fun parseSocketEvent(body: String): SocketEvent? {
             seq = json.optLong("seq"),
             clientMessageId = json.optString("clientMessageId"),
         )
+        "read" -> SocketEvent.Read(
+            conversationId = json.optString("conversationId"),
+            username = json.clean("username"),
+            lastReadSeq = json.optLong("lastReadSeq"),
+        )
+        "presence" -> SocketEvent.Presence(
+            username = json.clean("username"),
+            online = json.optBoolean("online"),
+        )
         else -> null
     }
 }
@@ -94,6 +109,8 @@ fun parseSocketEvent(body: String): SocketEvent? {
 sealed interface SocketEvent {
     data class Incoming(val message: RemoteMessage) : SocketEvent
     data class Deleted(val conversationId: String, val seq: Long, val clientMessageId: String) : SocketEvent
+    data class Read(val conversationId: String, val username: String, val lastReadSeq: Long) : SocketEvent
+    data class Presence(val username: String, val online: Boolean) : SocketEvent
 }
 
 @Singleton
@@ -220,6 +237,8 @@ class ChatApi @Inject constructor(
         call(account, "DELETE", "/api/v1/conversations/$conversationId/messages/$seq", null)
         Unit
     }
+
+    fun accountUsername(): String = sessionStore.read()?.username.orEmpty()
 
     fun send(conversationId: String, text: String, replyToSeq: Long? = null): RemoteMessage = authorized { account ->
         val payload = JSONObject().put("clientMessageId", UUID.randomUUID().toString()).put("text", text)

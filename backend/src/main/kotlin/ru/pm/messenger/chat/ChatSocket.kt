@@ -27,6 +27,8 @@ class LiveSessions {
         sessions[userId]?.remove(session)
     }
 
+    fun online(userId: UUID): Boolean = sessions[userId]?.any { it.isOpen } == true
+
     fun publish(message: MessageView, userIds: Collection<UUID>) {
         publishRaw(messageEvent(message), userIds)
     }
@@ -58,6 +60,7 @@ class LiveSessions {
 @Component
 class ChatSocketHandler(
     private val live: LiveSessions,
+    private val chat: ChatService,
 ) : TextWebSocketHandler() {
     override fun afterConnectionEstablished(session: WebSocketSession) {
         val principal = session.attributes["principal"] as? MessengerPrincipal
@@ -67,6 +70,8 @@ class ChatSocketHandler(
         }
         session.attributes["userId"] = principal.userId
         live.add(principal.userId, session)
+        chat.notePresence(principal.userId)
+        live.publishRaw(presenceEvent(chat.username(principal.userId), true), chat.directPeerIds(principal.userId))
         synchronized(session) {
             session.sendMessage(TextMessage("""{"type":"ready"}"""))
         }
@@ -75,6 +80,10 @@ class ChatSocketHandler(
     override fun afterConnectionClosed(session: WebSocketSession, status: CloseStatus) {
         val userId = session.attributes["userId"] as? UUID ?: return
         live.remove(userId, session)
+        if (!live.online(userId)) {
+            chat.notePresence(userId)
+            live.publishRaw(presenceEvent(chat.username(userId), false), chat.directPeerIds(userId))
+        }
     }
 
     override fun handleTextMessage(session: WebSocketSession, message: TextMessage) = Unit
@@ -104,6 +113,21 @@ class ChatHandshakeInterceptor(
         wsHandler: WebSocketHandler,
         exception: Exception?,
     ) = Unit
+}
+
+internal fun readEvent(conversationId: UUID, username: String, seq: Long): String = buildString {
+    append("""{"type":"read",""")
+    append(""""conversationId":${json(conversationId.toString())},""")
+    append(""""username":${json(username)},""")
+    append(""""lastReadSeq":$seq""")
+    append("}")
+}
+
+internal fun presenceEvent(username: String, online: Boolean): String = buildString {
+    append("""{"type":"presence",""")
+    append(""""username":${json(username)},""")
+    append(""""online":$online""")
+    append("}")
 }
 
 internal fun deletedEvent(deleted: DeletedMessage): String = buildString {

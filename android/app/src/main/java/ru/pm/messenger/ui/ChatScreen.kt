@@ -350,10 +350,11 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(state.peerName, color = Tg.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val subtitle = if (state.openType == "group") {
-                    stringResource(R.string.group_subtitle)
-                } else {
-                    state.peerUsername
+                val subtitle = when {
+                    state.openType == "group" -> stringResource(R.string.group_subtitle)
+                    state.peerOnline -> stringResource(R.string.peer_online)
+                    state.peerLastSeenAt.isNotBlank() -> stringResource(R.string.peer_last_seen, formatListTime(state.peerLastSeenAt))
+                    else -> state.peerUsername
                 }
                 if (subtitle.isNotBlank()) Text(subtitle, color = Tg.secondary, fontSize = 13.sp, maxLines = 1)
             }
@@ -403,6 +404,10 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
                     is ChatRow.Bubble -> MessageBubble(
                         message = row.message,
                         mine = row.message.senderUsername.equals(myUsername, ignoreCase = true),
+                        read = state.openType == "direct" &&
+                            row.message.senderUsername.equals(myUsername, ignoreCase = true) &&
+                            (row.message.seq ?: 0) > 0 &&
+                            (row.message.seq ?: 0) <= state.peerLastReadSeq,
                         onAttachment = { viewModel.openAttachment(row.message.attachmentId) },
                         onAction = { action = it },
                     )
@@ -630,6 +635,7 @@ private fun DayChip(label: String) {
 private fun MessageBubble(
     message: MessageEntity,
     mine: Boolean,
+    read: Boolean,
     onAttachment: () -> Unit,
     onAction: (MessageEntity) -> Unit,
 ) {
@@ -691,6 +697,10 @@ private fun MessageBubble(
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(formatBubbleTime(message.createdAt), color = Tg.secondary, fontSize = 11.sp)
+                if (mine) {
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (read) "✓✓" else "✓", color = if (read) Tg.accentBright else Tg.secondary, fontSize = 11.sp)
+                }
             }
         }
     }
