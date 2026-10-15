@@ -106,6 +106,7 @@ OpenAPI: `GET /v3/api-docs`, UI: `GET /swagger-ui.html`.
 | POST | `/api/v1/conversations/{id}/leave` | участник |
 | DELETE | `/api/v1/conversations/{id}/members/{username}` | `owner` или `admin` |
 | POST | `/api/v1/conversations/{id}/read` | участник, тело `{lastReadSeq}` |
+| DELETE | `/api/v1/conversations/{id}/messages/{seq}` | автор сообщения |
 | GET | `/api/v1/admin/users` | `owner` и `admin` |
 | POST | `/api/v1/admin/users/{username}/status` | тело `{status}`: `active` или `blocked` |
 

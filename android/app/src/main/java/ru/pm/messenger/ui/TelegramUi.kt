@@ -16,6 +16,7 @@ object Tg {
     val accentBright = Color(0xFF6AB3F3)
     val text = Color(0xFFF5F5F5)
     val secondary = Color(0xFF7D8E9E)
+    val unread = Color(0xFF3E88F7)
     val danger = Color(0xFFE36A6A)
     val input = Color(0xFF242F3D)
     val chip = Color(0xFF2B5278)

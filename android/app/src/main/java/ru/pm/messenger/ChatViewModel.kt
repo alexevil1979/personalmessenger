@@ -21,7 +21,8 @@ import ru.pm.messenger.data.ChatApi
 import ru.pm.messenger.data.ChatDao
 import ru.pm.messenger.data.ConversationEntity
 import ru.pm.messenger.data.MessageEntity
-import ru.pm.messenger.data.parseSocketMessage
+import ru.pm.messenger.data.SocketEvent
+import ru.pm.messenger.data.parseSocketEvent
 import javax.inject.Inject
 
 data class ChatUi(
@@ -56,10 +57,22 @@ class ChatViewModel @Inject constructor(
         refresh()
         socket?.close(1000, null)
         socket = chatApi.connect { payload ->
-            val incoming = runCatching { parseSocketMessage(payload) }.getOrNull() ?: return@connect
+            val event = runCatching { parseSocketEvent(payload) }.getOrNull() ?: return@connect
             viewModelScope.launch(Dispatchers.IO) {
-                chatDao.saveMessage(incoming.toEntity())
-                if (_state.value.openId == incoming.conversationId) reloadMessages(incoming.conversationId)
+                when (event) {
+                    is SocketEvent.Incoming -> {
+                        val incoming = event.message
+                        chatDao.saveMessage(incoming.toEntity())
+                        if (_state.value.openId == incoming.conversationId) {
+                            runCatching { chatApi.markRead(incoming.conversationId, incoming.seq) }
+                            reloadMessages(incoming.conversationId)
+                        }
+                    }
+                    is SocketEvent.Deleted -> {
+                        if (event.seq > 0) chatDao.deleteBySeq(event.conversationId, event.seq)
+                        if (_state.value.openId == event.conversationId) reloadMessages(event.conversationId)
+                    }
+                }
                 refresh()
             }
         }
@@ -395,6 +408,24 @@ class ChatViewModel @Inject constructor(
             runCatching { chatApi.markRead(conversationId, cursor) }
         }
         reloadMessages(conversationId)
+        refresh()
+    }
+
+    fun deleteMessage(seq: Long) {
+        val conversationId = _state.value.openId ?: return
+        if (seq <= 0 || _state.value.working) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                chatApi.deleteMessage(conversationId, seq)
+                chatDao.deleteBySeq(conversationId, seq)
+                reloadMessages(conversationId)
+                refresh()
+            } catch (error: AuthCallException) {
+                _state.value = _state.value.copy(errorCode = error.code)
+            } catch (_: Exception) {
+                _state.value = _state.value.copy(errorCode = "network")
+            }
+        }
     }
 
     override fun onCleared() {
@@ -433,6 +464,7 @@ private fun ru.pm.messenger.data.RemoteConversation.toEntity() = ConversationEnt
     peerDisplayName = peerDisplayName,
     preview = preview,
     updatedAt = updatedAt,
+    unreadCount = unreadCount,
 )
 
 private fun ru.pm.messenger.data.RemoteMessage.toEntity() = MessageEntity(

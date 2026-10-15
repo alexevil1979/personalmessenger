@@ -39,6 +39,9 @@
     <string name="nothing_found">Nothing found</string>
     <string name="group_subtitle">group</string>
     <string name="recording_now">Recording</string>
+    <string name="delete_message">Delete</string>
+    <string name="delete_message_body">The message disappears for everyone in this chat.</string>
+    <string name="error_not_author">Only the author can delete a message.</string>
     <string name="chats_plaintext">The server can currently read text and files. End-to-end encryption is not enabled.</string>
     <string name="peer_username">Username of the other person</string>
     <string name="open_chat">Open chat</string>

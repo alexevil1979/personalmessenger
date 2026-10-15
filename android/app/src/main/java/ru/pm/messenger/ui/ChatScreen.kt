@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts.GetContent
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -215,22 +217,49 @@ private fun ChatRowItem(conversation: ConversationEntity, onClick: () -> Unit) {
                     conversation.peerDisplayName.ifBlank { conversation.peerUsername },
                     color = Tg.text,
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = if (conversation.unreadCount > 0) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Text(formatListTime(conversation.updatedAt), color = Tg.secondary, fontSize = 12.sp)
+                Text(
+                    formatListTime(conversation.updatedAt),
+                    color = if (conversation.unreadCount > 0) Tg.accentBright else Tg.secondary,
+                    fontSize = 12.sp,
+                )
             }
             val preview = conversation.preview.takeUnless { it.isBlank() || it == "null" }.orEmpty()
-            if (preview.isNotBlank()) {
+            if (preview.isNotBlank() || conversation.unreadCount > 0) {
                 Spacer(Modifier.height(3.dp))
-                Text(preview, color = Tg.secondary, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        preview,
+                        color = if (conversation.unreadCount > 0) Tg.text else Tg.secondary,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (conversation.unreadCount > 0) {
+                        Spacer(Modifier.width(8.dp))
+                        UnreadBadge(conversation.unreadCount)
+                    }
+                }
             }
         }
     }
 }
 
+@Composable
+private fun UnreadBadge(count: Int) {
+    val label = if (count > 99) "99+" else count.toString()
+    Box(
+        modifier = Modifier.height(22.dp).clip(CircleShape).background(Tg.unread).padding(horizontal = 7.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = Tg.text, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
 @Composable
 private fun NewChatDialog(
     peer: String,
@@ -282,6 +311,7 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
     var draft by rememberSaveable { mutableStateOf("") }
     var memberName by rememberSaveable { mutableStateOf("") }
     var menu by rememberSaveable { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<Long?>(null) }
     val context = LocalContext.current
     val listState = rememberLazyListState()
     val rows = rowsOf(state.messages)
@@ -366,9 +396,12 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
             }) { _, row ->
                 when (row) {
                     is ChatRow.Day -> DayChip(row.label)
-                    is ChatRow.Bubble -> MessageBubble(row.message, mine = row.message.senderUsername.equals(myUsername, ignoreCase = true)) {
-                        viewModel.openAttachment(row.message.attachmentId)
-                    }
+                    is ChatRow.Bubble -> MessageBubble(
+                        message = row.message,
+                        mine = row.message.senderUsername.equals(myUsername, ignoreCase = true),
+                        onAttachment = { viewModel.openAttachment(row.message.attachmentId) },
+                        onDelete = { seq -> pendingDelete = seq },
+                    )
                 }
             }
         }
@@ -422,6 +455,23 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
                 } else {
                     askMic.launch(Manifest.permission.RECORD_AUDIO)
                 }
+            },
+        )
+    }
+    pendingDelete?.let { seq ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            containerColor = Tg.bars,
+            title = { Text(stringResource(R.string.delete_message), color = Tg.text) },
+            text = { Text(stringResource(R.string.delete_message_body), color = Tg.secondary) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingDelete = null
+                    viewModel.deleteMessage(seq)
+                }) { Text(stringResource(R.string.delete_message), color = Tg.danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.back_to_chats), color = Tg.secondary) }
             },
         )
     }
@@ -494,7 +544,12 @@ private fun DayChip(label: String) {
 }
 
 @Composable
-private fun MessageBubble(message: MessageEntity, mine: Boolean, onAttachment: () -> Unit) {
+private fun MessageBubble(
+    message: MessageEntity,
+    mine: Boolean,
+    onAttachment: () -> Unit,
+    onDelete: (Long) -> Unit,
+) {
     val body = when {
         message.kind == "voice" && message.attachmentName.isNotBlank() -> message.attachmentName
         message.attachmentName.isNotBlank() && message.text != message.attachmentName -> "${message.attachmentName}\n${message.text}"
@@ -515,7 +570,13 @@ private fun MessageBubble(message: MessageEntity, mine: Boolean, onAttachment: (
                     ),
                 )
                 .background(if (mine) Tg.outgoing else Tg.incoming)
-                .then(if (message.attachmentId.isNotBlank()) Modifier.clickable(onClick = onAttachment) else Modifier)
+                .combinedClickable(
+                    onClick = { if (message.attachmentId.isNotBlank()) onAttachment() },
+                    onLongClick = {
+                        val seq = message.seq
+                        if (mine && seq != null && seq > 0) onDelete(seq)
+                    },
+                )
                 .padding(horizontal = 10.dp, vertical = 6.dp),
         ) {
             if (!mine && message.senderUsername.isNotBlank()) {
@@ -569,6 +630,8 @@ private fun chatError(code: String): Int = when (code) {
     "mic_failed" -> R.string.error_mic_failed
     "owner_must_stay" -> R.string.error_owner_stays
     "cannot_remove_self" -> R.string.error_remove_self
+    "not_message_author" -> R.string.error_not_author
+    "message_not_found" -> R.string.error_generic
     "network" -> R.string.error_network
     else -> R.string.error_generic
 }

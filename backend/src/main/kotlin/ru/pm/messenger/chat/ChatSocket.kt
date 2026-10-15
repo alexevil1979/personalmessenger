@@ -28,7 +28,10 @@ class LiveSessions {
     }
 
     fun publish(message: MessageView, userIds: Collection<UUID>) {
-        val payload = messageEvent(message)
+        publishRaw(messageEvent(message), userIds)
+    }
+
+    fun publishRaw(payload: String, userIds: Collection<UUID>) {
         userIds.forEach { userId -> deliver(userId, payload) }
     }
 
@@ -101,6 +104,14 @@ class ChatHandshakeInterceptor(
         wsHandler: WebSocketHandler,
         exception: Exception?,
     ) = Unit
+}
+
+internal fun deletedEvent(deleted: DeletedMessage): String = buildString {
+    append("""{"type":"deleted",""")
+    append(""""conversationId":${json(deleted.conversationId.toString())},""")
+    append(""""seq":${deleted.seq},""")
+    append(""""clientMessageId":${json(deleted.clientMessageId.toString())}""")
+    append("}")
 }
 
 internal fun messageEvent(message: MessageView): String = buildString {

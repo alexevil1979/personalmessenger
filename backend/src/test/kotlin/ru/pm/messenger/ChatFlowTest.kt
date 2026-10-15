@@ -279,6 +279,28 @@ class ChatFlowTest {
         assertEquals(sent.body.path("seq").asLong(), read.body.path("lastReadSeq").asLong())
     }
 
+    @Test
+    @Order(7)
+    fun unreadCountAndAuthorCanDelete() {
+        val sent = post(
+            "/api/v1/conversations/$conversationId/messages",
+            mapOf("clientMessageId" to UUID.randomUUID().toString(), "text" to "удалить меня"),
+            alice,
+        )
+        assertEquals(200, sent.statusCode(), sent.raw)
+        val seq = sent.body.path("seq").asLong()
+        val listed = get("/api/v1/conversations", bob)
+        assertEquals(200, listed.statusCode(), listed.raw)
+        val unread = listed.body.find { it.path("id").asText() == conversationId }?.path("unreadCount")?.asInt() ?: 0
+        assertTrue(unread >= 1, listed.raw)
+        assertEquals(403, delete("/api/v1/conversations/$conversationId/messages/$seq", bob).statusCode())
+        assertEquals(204, delete("/api/v1/conversations/$conversationId/messages/$seq", alice).statusCode())
+        assertEquals(204, delete("/api/v1/conversations/$conversationId/messages/$seq", alice).statusCode())
+        val history = get("/api/v1/conversations/$conversationId/messages?afterSeq=0", bob)
+        assertEquals(200, history.statusCode(), history.raw)
+        assertTrue(history.body.none { it.path("text").asText() == "удалить меня" })
+    }
+
     private fun seedUser(username: String) {
         jdbc.update(
             "INSERT INTO users (id, username, display_name, password_hash, privacy_policy_accepted_at) VALUES (?, ?, ?, ?, now())",

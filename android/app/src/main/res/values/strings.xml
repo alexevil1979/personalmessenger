@@ -39,6 +39,9 @@
     <string name="nothing_found">Ничего не нашлось</string>
     <string name="group_subtitle">группа</string>
     <string name="recording_now">Идёт запись</string>
+    <string name="delete_message">Удалить</string>
+    <string name="delete_message_body">Сообщение исчезнет у всех в этом чате.</string>
+    <string name="error_not_author">Можно удалить только своё сообщение.</string>
     <string name="chats_plaintext">Текст и файлы пока читаются сервером. Сквозного шифрования нет.</string>
     <string name="peer_username">Имя собеседника</string>
     <string name="open_chat">Открыть чат</string>

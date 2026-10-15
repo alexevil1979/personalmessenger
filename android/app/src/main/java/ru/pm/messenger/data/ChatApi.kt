@@ -21,6 +21,7 @@ data class RemoteConversation(
     val peerDisplayName: String,
     val preview: String,
     val updatedAt: String,
+    val unreadCount: Int,
 )
 
 data class RemoteMessage(
@@ -61,12 +62,25 @@ fun parseConversation(item: JSONObject) = RemoteConversation(
     peerDisplayName = item.optString("peerDisplayName"),
     preview = item.optString("preview").takeUnless { it == "null" }.orEmpty(),
     updatedAt = item.optString("updatedAt"),
+    unreadCount = item.optInt("unreadCount"),
 )
 
-fun parseSocketMessage(body: String): RemoteMessage? {
+fun parseSocketEvent(body: String): SocketEvent? {
     val json = JSONObject(body)
-    if (json.optString("type") != "message") return null
-    return parseRemoteMessage(json.getJSONObject("message"))
+    return when (json.optString("type")) {
+        "message" -> SocketEvent.Incoming(parseRemoteMessage(json.getJSONObject("message")))
+        "deleted" -> SocketEvent.Deleted(
+            conversationId = json.optString("conversationId"),
+            seq = json.optLong("seq"),
+            clientMessageId = json.optString("clientMessageId"),
+        )
+        else -> null
+    }
+}
+
+sealed interface SocketEvent {
+    data class Incoming(val message: RemoteMessage) : SocketEvent
+    data class Deleted(val conversationId: String, val seq: Long, val clientMessageId: String) : SocketEvent
 }
 
 @Singleton
@@ -186,6 +200,11 @@ class ChatApi @Inject constructor(
 
     fun markRead(conversationId: String, seq: Long) = authorized { account ->
         call(account, "POST", "/api/v1/conversations/$conversationId/read", JSONObject().put("lastReadSeq", seq))
+        Unit
+    }
+
+    fun deleteMessage(conversationId: String, seq: Long) = authorized { account ->
+        call(account, "DELETE", "/api/v1/conversations/$conversationId/messages/$seq", null)
         Unit
     }
 

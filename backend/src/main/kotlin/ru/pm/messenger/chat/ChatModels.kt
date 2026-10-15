@@ -24,6 +24,13 @@ data class ConversationView(
     val lastSeq: Long?,
     val preview: String?,
     val updatedAt: OffsetDateTime,
+    val unreadCount: Int = 0,
+)
+
+data class DeletedMessage(
+    val conversationId: UUID,
+    val seq: Long,
+    val clientMessageId: UUID,
 )
 
 data class MessageView(

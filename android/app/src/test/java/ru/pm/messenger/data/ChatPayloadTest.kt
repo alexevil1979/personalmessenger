@@ -2,12 +2,13 @@ package ru.pm.messenger.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatPayloadTest {
     @Test
     fun parsesSocketMessage() {
-        val message = parseSocketMessage(
+        val message = incoming(
             """
             {"type":"message","message":{"seq":4,"conversationId":"chat","senderUsername":"bob","clientMessageId":"client","text":"привет","createdAt":"2026-10-14T12:00:00Z"}}
             """.trimIndent(),
@@ -21,7 +22,7 @@ class ChatPayloadTest {
 
     @Test
     fun parsesAttachmentFields() {
-        val message = parseSocketMessage(
+        val message = incoming(
             """
             {"type":"message","message":{"seq":5,"conversationId":"chat","senderUsername":"bob","clientMessageId":"client","text":"photo.png","createdAt":"2026-10-14T12:00:00Z","kind":"attachment","attachmentId":"file-1","attachmentName":"photo.png","mimeType":"image/png"}}
             """.trimIndent(),
@@ -32,7 +33,16 @@ class ChatPayloadTest {
     }
 
     @Test
-    fun ignoresOtherEvents() {
-        assertNull(parseSocketMessage("""{"type":"presence"}"""))
+    fun parsesDeletion() {
+        val deleted = parseSocketEvent("""{"type":"deleted","conversationId":"chat","seq":4,"clientMessageId":"client"}""")
+        assertTrue(deleted is SocketEvent.Deleted)
+        assertEquals(4L, (deleted as SocketEvent.Deleted).seq)
     }
+
+    @Test
+    fun ignoresOtherEvents() {
+        assertNull(parseSocketEvent("""{"type":"presence"}"""))
+    }
+
+    private fun incoming(body: String) = (parseSocketEvent(body) as? SocketEvent.Incoming)?.message
 }

@@ -17,6 +17,7 @@ data class ConversationEntity(
     val peerDisplayName: String,
     val preview: String,
     val updatedAt: String,
+    val unreadCount: Int,
 )
 
 @Entity(
@@ -55,6 +56,9 @@ interface ChatDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun saveMessage(message: MessageEntity)
+
+    @Query("DELETE FROM messages WHERE conversationId = :conversationId AND seq = :seq")
+    fun deleteBySeq(conversationId: String, seq: Long)
 
     @Query("DELETE FROM messages")
     fun clearMessages()

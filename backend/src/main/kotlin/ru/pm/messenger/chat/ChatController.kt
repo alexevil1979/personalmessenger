@@ -54,6 +54,13 @@ class ChatController(
         @RequestParam(name = "afterSeq", defaultValue = "0") afterSeq: Long,
     ): List<MessageView> = chat.messages(currentPrincipal(), id, afterSeq)
 
+    @DeleteMapping("/{id}/messages/{seq}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun deleteMessage(@PathVariable id: UUID, @PathVariable seq: Long) {
+        val deleted = chat.deleteMessage(currentPrincipal(), id, seq)
+        live.publishRaw(deletedEvent(deleted), chat.memberIds(id))
+    }
+
     @PostMapping("/{id}/messages")
     fun send(@PathVariable id: UUID, @RequestBody body: SendMessageRequest): MessageView {
         val message = chat.send(currentPrincipal(), id, body)

@@ -85,7 +85,15 @@ class ChatService(
             SELECT c.id, c.type, me.role AS my_role,
                    COALESCE(u.username, '') AS username,
                    COALESCE(u.display_name, c.title, '') AS display_name,
-                   c.updated_at, m.seq, m.ciphertext, m.encryption
+                   c.updated_at, m.seq, m.ciphertext, m.encryption,
+                   COALESCE((
+                       SELECT count(*)::int
+                       FROM messages unread
+                       WHERE unread.conversation_id = c.id
+                         AND unread.deleted_at IS NULL
+                         AND unread.sender_user_id <> me.user_id
+                         AND unread.seq > COALESCE(me.last_read_seq, 0)
+                   ), 0) AS unread_count
             FROM conversation_members me
             JOIN conversations c ON c.id = me.conversation_id
             LEFT JOIN conversation_members other
@@ -208,6 +216,40 @@ class ChatService(
             """.trimIndent(),
         ).param("seq", stored).param("id", conversationId).param("userId", principal.userId).update()
         return ReadCursor(stored)
+    }
+
+    @Transactional
+    fun deleteMessage(principal: MessengerPrincipal, conversationId: UUID, seq: Long): DeletedMessage {
+        requireMember(principal, conversationId)
+        val row = jdbc.sql(
+            """
+            SELECT client_message_id, sender_user_id, deleted_at
+            FROM messages
+            WHERE conversation_id = :conversationId AND seq = :seq
+            """.trimIndent(),
+        ).param("conversationId", conversationId).param("seq", seq)
+            .query { rs, _ ->
+                Triple(
+                    rs.getObject("client_message_id", UUID::class.java),
+                    rs.getObject("sender_user_id", UUID::class.java),
+                    rs.getObject("deleted_at"),
+                )
+            }
+            .optional()
+            .orElse(null)
+            ?: throw ApiException(HttpStatus.NOT_FOUND, "message_not_found", "Message was not found.")
+        if (row.second != principal.userId) {
+            throw ApiException(HttpStatus.FORBIDDEN, "not_message_author", "Only the author can delete a message.")
+        }
+        if (row.third == null) {
+            jdbc.sql(
+                """
+                UPDATE messages SET deleted_at = now()
+                WHERE conversation_id = :conversationId AND seq = :seq AND deleted_at IS NULL
+                """.trimIndent(),
+            ).param("conversationId", conversationId).param("seq", seq).update()
+        }
+        return DeletedMessage(conversationId, seq, row.first)
     }
 
     fun send(principal: MessengerPrincipal, conversationId: UUID, request: SendMessageRequest): MessageView {
@@ -458,6 +500,7 @@ class ChatService(
             lastSeq = getObject("seq")?.let { getLong("seq") },
             preview = preview,
             updatedAt = time("updated_at"),
+            unreadCount = getInt("unread_count"),
         )
     }
 
