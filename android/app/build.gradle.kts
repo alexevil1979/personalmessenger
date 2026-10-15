@@ -14,8 +14,8 @@ android {
         applicationId = "ru.pm.messenger"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.6.5"
+        versionCode = 14
+        versionName = "0.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "API_BASE_URL", "\"https://pm.1tlt.ru\"")
     }
@@ -35,6 +35,12 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    packaging {
+        resources {
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
     }
 }
 
@@ -58,6 +64,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("org.json:json:20250517")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.81")
+    implementation("io.github.webrtc-sdk:android:125.6422.07")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.google.dagger:hilt-android:2.56.2")
     implementation("androidx.room:room-runtime:2.7.2")

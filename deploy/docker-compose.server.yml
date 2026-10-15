@@ -59,6 +59,8 @@ services:
       BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BOOTSTRAP_ADMIN_DISPLAY_NAME: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:-Administrator}
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_HOST: ${TURN_HOST:-pm.1tlt.ru}
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +76,24 @@ services:
       dockerfile: Dockerfile.runtime
     ports:
       - "127.0.0.1:8088:80"
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    network_mode: host
+    command:
+      - "-n"
+      - "--log-file=stdout"
+      - "--listening-port=3478"
+      - "--fingerprint"
+      - "--lt-cred-mech"
+      - "--use-auth-secret"
+      - "--static-auth-secret=${TURN_SECRET:?TURN_SECRET is required}"
+      - "--realm=${TURN_REALM:-pm.1tlt.ru}"
+      - "--external-ip=81.23.181.220"
+      - "--min-port=49160"
+      - "--max-port=49200"
+      - "--no-cli"
     restart: unless-stopped
 
 volumes:

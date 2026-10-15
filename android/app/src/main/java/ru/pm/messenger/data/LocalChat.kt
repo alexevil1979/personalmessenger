@@ -21,6 +21,8 @@ data class ConversationEntity(
     val peerLastReadSeq: Long = 0,
     val peerLastSeenAt: String = "",
     val peerOnline: Boolean = false,
+    val peerIdentityKey: String = "",
+    val lastEncrypted: Boolean = false,
 )
 
 @Entity(
@@ -60,6 +62,9 @@ interface ChatDao {
 
     @Query("SELECT COALESCE(MAX(seq), 0) FROM messages WHERE conversationId = :conversationId")
     fun maxSeq(conversationId: String): Long
+
+    @Query("SELECT * FROM messages WHERE clientMessageId = :clientMessageId")
+    fun message(clientMessageId: String): MessageEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun saveMessage(message: MessageEntity)

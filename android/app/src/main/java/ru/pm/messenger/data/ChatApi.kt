@@ -25,6 +25,8 @@ data class RemoteConversation(
     val peerLastReadSeq: Long,
     val peerLastSeenAt: String,
     val peerOnline: Boolean,
+    val peerIdentityKey: String,
+    val lastEncrypted: Boolean,
 )
 
 data class RemoteMessage(
@@ -41,6 +43,14 @@ data class RemoteMessage(
     val replyToUsername: String,
     val replyToText: String,
     val edited: Boolean,
+    val encryption: String,
+    val ciphertext: String,
+)
+
+data class RemoteIce(
+    val urls: List<String>,
+    val username: String,
+    val credential: String,
 )
 
 data class RemoteAttachment(
@@ -63,6 +73,8 @@ fun parseRemoteMessage(json: JSONObject): RemoteMessage = RemoteMessage(
     replyToUsername = json.clean("replyToUsername"),
     replyToText = json.clean("replyToText"),
     edited = json.optBoolean("edited", false),
+    encryption = json.optString("encryption", "none"),
+    ciphertext = json.clean("ciphertext"),
 )
 
 private fun JSONObject.clean(key: String): String {
@@ -82,6 +94,8 @@ fun parseConversation(item: JSONObject) = RemoteConversation(
     peerLastReadSeq = item.optLong("peerLastReadSeq"),
     peerLastSeenAt = item.clean("peerLastSeenAt"),
     peerOnline = item.optBoolean("peerOnline"),
+    peerIdentityKey = item.clean("peerIdentityKey"),
+    lastEncrypted = item.optBoolean("lastEncrypted"),
 )
 
 fun parseSocketEvent(body: String): SocketEvent? {
@@ -102,6 +116,17 @@ fun parseSocketEvent(body: String): SocketEvent? {
             username = json.clean("username"),
             online = json.optBoolean("online"),
         )
+        "call-invite", "call-answer", "call-ice", "call-hangup" -> SocketEvent.Call(
+            type = json.optString("type"),
+            callId = json.optString("callId"),
+            conversationId = json.optString("conversationId"),
+            kind = json.optString("kind", "audio"),
+            sdp = json.optString("sdp"),
+            candidate = json.optString("candidate"),
+            sdpMid = json.optString("sdpMid"),
+            sdpMLineIndex = json.optInt("sdpMLineIndex"),
+            from = json.clean("from"),
+        )
         else -> null
     }
 }
@@ -111,6 +136,17 @@ sealed interface SocketEvent {
     data class Deleted(val conversationId: String, val seq: Long, val clientMessageId: String) : SocketEvent
     data class Read(val conversationId: String, val username: String, val lastReadSeq: Long) : SocketEvent
     data class Presence(val username: String, val online: Boolean) : SocketEvent
+    data class Call(
+        val type: String,
+        val callId: String,
+        val conversationId: String,
+        val kind: String,
+        val sdp: String,
+        val candidate: String,
+        val sdpMid: String,
+        val sdpMLineIndex: Int,
+        val from: String,
+    ) : SocketEvent
 }
 
 @Singleton
@@ -240,21 +276,51 @@ class ChatApi @Inject constructor(
 
     fun accountUsername(): String = sessionStore.read()?.username.orEmpty()
 
-    fun send(conversationId: String, text: String, replyToSeq: Long? = null): RemoteMessage = authorized { account ->
-        val payload = JSONObject().put("clientMessageId", UUID.randomUUID().toString()).put("text", text)
-        if (replyToSeq != null && replyToSeq > 0) payload.put("replyToSeq", replyToSeq)
-        val body = call(account, "POST", "/api/v1/conversations/$conversationId/messages", payload)
-        parseRemoteMessage(JSONObject(body))
+    fun accountUserId(): String = sessionStore.read()?.userId.orEmpty()
+
+    fun publishIdentity(publicKey: String) = authorized { account ->
+        call(account, "PUT", "/api/v1/devices/identity", JSONObject().put("publicKey", publicKey))
+        Unit
     }
 
-    fun editMessage(conversationId: String, seq: Long, text: String): RemoteMessage = authorized { account ->
-        val body = call(
-            account,
-            "POST",
-            "/api/v1/conversations/$conversationId/messages/$seq/edit",
-            JSONObject().put("text", text),
-        )
-        parseRemoteMessage(JSONObject(body))
+    fun ice(): List<RemoteIce> = authorized { account ->
+        val body = JSONObject(call(account, "GET", "/api/v1/calls/ice", null))
+        val array = body.getJSONArray("iceServers")
+        buildList {
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
+                val urls = item.getJSONArray("urls")
+                add(
+                    RemoteIce(
+                        urls = buildList { for (url in 0 until urls.length()) add(urls.getString(url)) },
+                        username = item.optString("username"),
+                        credential = item.optString("credential"),
+                    ),
+                )
+            }
+        }
+    }
+
+    fun send(
+        conversationId: String,
+        text: String,
+        replyToSeq: Long? = null,
+        encryption: String = "none",
+        ciphertext: String = "",
+    ): RemoteMessage = authorized { account ->
+        val payload = JSONObject().put("clientMessageId", UUID.randomUUID().toString()).put("encryption", encryption)
+        if (encryption == "none") payload.put("text", text) else payload.put("ciphertext", ciphertext)
+        if (replyToSeq != null && replyToSeq > 0) payload.put("replyToSeq", replyToSeq)
+        parseRemoteMessage(JSONObject(call(account, "POST", "/api/v1/conversations/$conversationId/messages", payload)))
+    }
+
+    fun editMessage(conversationId: String, seq: Long, text: String, ciphertext: String = ""): RemoteMessage = authorized { account ->
+        val payload = if (ciphertext.isBlank()) {
+            JSONObject().put("text", text)
+        } else {
+            JSONObject().put("ciphertext", ciphertext)
+        }
+        parseRemoteMessage(JSONObject(call(account, "POST", "/api/v1/conversations/$conversationId/messages/$seq/edit", payload)))
     }
 
     fun connect(onMessage: (String) -> Unit): WebSocket? {
@@ -298,6 +364,8 @@ class ChatApi @Inject constructor(
             builder.get()
         } else if (method == "DELETE") {
             builder.delete()
+        } else if (method == "PUT") {
+            builder.put((json ?: JSONObject()).toString().toRequestBody(JSON))
         } else if (rawBody != null) {
             builder.post(rawBody)
         } else {

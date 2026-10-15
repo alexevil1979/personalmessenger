@@ -362,6 +362,38 @@ class ChatFlowTest {
         assertEquals(1L, receipts)
     }
 
+    @Test
+    @Order(10)
+    fun directCiphertextIsStoredWithoutPlaintext() {
+        val raw = ByteArray(61)
+        raw[0] = 1
+        val encoded = java.util.Base64.getEncoder().encodeToString(raw)
+        val sent = post(
+            "/api/v1/conversations/$conversationId/messages",
+            mapOf(
+                "clientMessageId" to UUID.randomUUID().toString(),
+                "encryption" to "x25519_v1",
+                "ciphertext" to encoded,
+            ),
+            alice,
+        )
+        assertEquals(200, sent.statusCode(), sent.raw)
+        assertEquals("x25519_v1", sent.body.path("encryption").asText())
+        assertEquals("", sent.body.path("text").asText())
+        assertEquals(encoded, sent.body.path("ciphertext").asText())
+        val history = get("/api/v1/conversations/$conversationId/messages?afterSeq=${sent.body.path("seq").asLong() - 1}", bob)
+        assertTrue(history.body.none { it.path("text").asText() == "секрет" })
+        assertEquals(400, post(
+            "/api/v1/conversations/$conversationId/messages",
+            mapOf(
+                "clientMessageId" to UUID.randomUUID().toString(),
+                "encryption" to "signal_v1",
+                "ciphertext" to encoded,
+            ),
+            alice,
+        ).statusCode())
+    }
+
     private fun seedUser(username: String) {
         jdbc.update(
             "INSERT INTO users (id, username, display_name, password_hash, privacy_policy_accepted_at) VALUES (?, ?, ?, ?, now())",

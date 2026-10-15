@@ -11,12 +11,17 @@ data class AddMemberRequest(val username: String)
 
 data class SendMessageRequest(
     val clientMessageId: UUID,
-    val text: String = "",
+    val text: String? = null,
     val attachmentId: UUID? = null,
     val replyToSeq: Long? = null,
+    val encryption: String? = null,
+    val ciphertext: String? = null,
 )
 
-data class EditMessageRequest(val text: String)
+data class EditMessageRequest(
+    val text: String? = null,
+    val ciphertext: String? = null,
+)
 
 data class ConversationView(
     val id: UUID,
@@ -31,6 +36,8 @@ data class ConversationView(
     val peerLastReadSeq: Long = 0,
     val peerLastSeenAt: OffsetDateTime? = null,
     val peerOnline: Boolean = false,
+    val peerIdentityKey: String = "",
+    val lastEncrypted: Boolean = false,
 )
 
 data class DeletedMessage(
@@ -57,4 +64,5 @@ data class MessageView(
     val replyToUsername: String? = null,
     val replyToText: String? = null,
     val edited: Boolean = false,
+    val ciphertext: String? = null,
 )

@@ -27,7 +27,7 @@ OpenAPI: `GET /v3/api-docs`, UI: `GET /swagger-ui.html`.
     "redis": {"status": "UP"},
     "minio": {"status": "NOT_CONFIGURED", "detail": "Object storage endpoint is not set"},
     "websocket": {"status": "NOT_ENABLED", "detail": "Realtime delivery is planned for stage 3"},
-    "e2ee": {"status": "NOT_ENABLED", "detail": "End-to-end encryption is not implemented"}
+    "e2ee": {"status": "PARTIAL", "detail": "Direct text uses X25519 and AES-GCM on the devices. The server stores the encrypted bytes and cannot read them. Groups, files and voice remain readable by the server. This is not the Signal protocol."}
   }
 }
 ```
@@ -64,7 +64,9 @@ OpenAPI: `GET /v3/api-docs`, UI: `GET /swagger-ui.html`.
 
 ## Реализовано в этапе 3
 
-Личный чат. Текст хранится как `encryption = none`: сервер может его прочитать. Повтор того же `clientMessageId` с того же устройства возвращает уже сохранённое сообщение. Чужой чат отвечает `404`. WebSocket `GET /api/v1/ws` с заголовком `Authorization: Bearer` пушит событие `{"type":"message",...}` участникам. Пропущенное догоняется через `afterSeq`.
+Личный чат. Текст с `encryption = x25519_v1` хранится как непрозрачный ciphertext: сервер не видит текст. Файлы и голосовые остаются `encryption = none`. Повтор того же `clientMessageId` с того же устройства возвращает уже сохранённое сообщение. Чужой чат отвечает `404`. WebSocket `GET /api/v1/ws` с заголовком `Authorization: Bearer` пушит событие `{"type":"message",...}` участникам и ретранслирует сигнализацию звонка `call-invite`, `call-answer`, `call-ice`, `call-hangup` только второму участнику личного чата. Пропущенное догоняется через `afterSeq`.
+
+`PUT /api/v1/devices/identity` публикует открытый ключ X25519 текущего устройства, 32 байта в base64. `GET /api/v1/calls/ice` отдаёт STUN и, если задан `TURN_SECRET`, временный TURN-логин. Медиа звонка идёт WebRTC между телефонами. Сервер видит факт звонка и сигнализацию, не звук и не картинку.
 
 | Метод | Путь | Доступ |
 | --- | --- | --- |

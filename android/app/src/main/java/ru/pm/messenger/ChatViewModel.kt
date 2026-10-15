@@ -8,7 +8,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.WebSocket
+import org.json.JSONObject
 import android.content.Context
 import android.media.MediaRecorder
 import android.net.Uri
@@ -21,8 +23,14 @@ import ru.pm.messenger.data.ChatApi
 import ru.pm.messenger.data.ChatDao
 import ru.pm.messenger.data.ConversationEntity
 import ru.pm.messenger.data.MessageEntity
+import ru.pm.messenger.data.DirectCipher
+import ru.pm.messenger.data.IdentityStore
 import ru.pm.messenger.data.SocketEvent
+import ru.pm.messenger.data.decodeKey
+import ru.pm.messenger.data.encodeKey
+import ru.pm.messenger.data.fingerprintOf
 import ru.pm.messenger.data.parseSocketEvent
+import java.util.UUID
 import javax.inject.Inject
 
 data class ChatUi(
@@ -37,6 +45,12 @@ data class ChatUi(
     val peerLastReadSeq: Long = 0,
     val peerLastSeenAt: String = "",
     val peerOnline: Boolean = false,
+    val peerIdentityKey: String = "",
+    val callPhase: String = "idle",
+    val callId: String = "",
+    val callKind: String = "audio",
+    val callPeer: String = "",
+    val callConversationId: String = "",
     val errorCode: String? = null,
     val working: Boolean = false,
     val recording: Boolean = false,
@@ -47,6 +61,7 @@ data class ChatUi(
 class ChatViewModel @Inject constructor(
     private val chatApi: ChatApi,
     private val chatDao: ChatDao,
+    private val identityStore: IdentityStore,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ChatUi())
@@ -55,6 +70,8 @@ class ChatViewModel @Inject constructor(
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
     private val recordLock = Any()
+    private var engine: CallEngine? = null
+    private var pendingOffer: String = ""
 
     fun start() {
         refresh()
@@ -65,7 +82,7 @@ class ChatViewModel @Inject constructor(
                 when (event) {
                     is SocketEvent.Incoming -> {
                         val incoming = event.message
-                        chatDao.saveMessage(incoming.toEntity())
+                        chatDao.saveMessage(storeRemote(incoming))
                         if (_state.value.openId == incoming.conversationId) {
                             runCatching { chatApi.markRead(incoming.conversationId, incoming.seq) }
                             reloadMessages(incoming.conversationId)
@@ -89,6 +106,7 @@ class ChatViewModel @Inject constructor(
                             _state.value = _state.value.copy(peerOnline = event.online)
                         }
                     }
+                    is SocketEvent.Call -> handleCall(event)
                 }
                 refresh()
             }
@@ -124,6 +142,7 @@ class ChatViewModel @Inject constructor(
                     peerLastReadSeq = conversation.peerLastReadSeq,
                     peerLastSeenAt = conversation.peerLastSeenAt,
                     peerOnline = conversation.peerOnline,
+                    peerIdentityKey = conversation.peerIdentityKey,
                 )
                 sync(conversation.id)
                 refreshBlock(conversation.id, conversation.peerUsername)
@@ -147,6 +166,7 @@ class ChatViewModel @Inject constructor(
             peerLastReadSeq = known?.peerLastReadSeq ?: 0,
             peerLastSeenAt = known?.peerLastSeenAt.orEmpty(),
             peerOnline = known?.peerOnline ?: false,
+            peerIdentityKey = known?.peerIdentityKey.orEmpty(),
             errorCode = null,
         )
         viewModelScope.launch(Dispatchers.IO) { sync(id) }
@@ -172,6 +192,7 @@ class ChatViewModel @Inject constructor(
                     peerLastReadSeq = conversation.peerLastReadSeq,
                     peerLastSeenAt = conversation.peerLastSeenAt,
                     peerOnline = conversation.peerOnline,
+                    peerIdentityKey = conversation.peerIdentityKey,
                 )
                 sync(conversation.id)
             } catch (error: AuthCallException) {
@@ -331,11 +352,21 @@ class ChatViewModel @Inject constructor(
         val conversationId = _state.value.openId ?: return
         val body = text.trim()
         if (body.isEmpty() || _state.value.working) return
+        val direct = _state.value.openType == "direct"
+        if (direct && _state.value.peerIdentityKey.isBlank()) {
+            _state.value = _state.value.copy(errorCode = "peer_key_missing")
+            return
+        }
         _state.value = _state.value.copy(working = true, errorCode = null)
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val saved = chatApi.send(conversationId, body, replyToSeq)
-                chatDao.saveMessage(saved.toEntity())
+                val saved = if (direct) {
+                    val box = seal(body)
+                    chatApi.send(conversationId, "", replyToSeq, "x25519_v1", box)
+                } else {
+                    chatApi.send(conversationId, body, replyToSeq)
+                }
+                chatDao.saveMessage(storeRemote(saved, body))
                 reloadMessages(conversationId)
                 refresh()
                 _state.value = _state.value.copy(working = false)
@@ -351,11 +382,20 @@ class ChatViewModel @Inject constructor(
         val conversationId = _state.value.openId ?: return
         val body = text.trim()
         if (body.isEmpty() || seq <= 0 || _state.value.working) return
+        val direct = _state.value.openType == "direct"
+        if (direct && _state.value.peerIdentityKey.isBlank()) {
+            _state.value = _state.value.copy(errorCode = "peer_key_missing")
+            return
+        }
         _state.value = _state.value.copy(working = true, errorCode = null)
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val saved = chatApi.editMessage(conversationId, seq, body)
-                chatDao.saveMessage(saved.toEntity())
+                val saved = if (direct) {
+                    chatApi.editMessage(conversationId, seq, "", seal(body))
+                } else {
+                    chatApi.editMessage(conversationId, seq, body)
+                }
+                chatDao.saveMessage(storeRemote(saved, body))
                 reloadMessages(conversationId)
                 refresh()
                 _state.value = _state.value.copy(working = false)
@@ -369,6 +409,12 @@ class ChatViewModel @Inject constructor(
 
     private fun refresh() {
         viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val userId = chatApi.accountUserId()
+                if (userId.isNotBlank()) {
+                    chatApi.publishIdentity(encodeKey(identityStore.ensure(userId).publicKey))
+                }
+            }
             try {
                 val remote = chatApi.conversations()
                 chatDao.clearConversations()
@@ -381,6 +427,7 @@ class ChatViewModel @Inject constructor(
                     peerLastReadSeq = open?.peerLastReadSeq ?: _state.value.peerLastReadSeq,
                     peerLastSeenAt = open?.peerLastSeenAt ?: _state.value.peerLastSeenAt,
                     peerOnline = open?.peerOnline ?: _state.value.peerOnline,
+                    peerIdentityKey = open?.peerIdentityKey ?: _state.value.peerIdentityKey,
                 )
             } catch (_: Exception) {
                 _state.value = _state.value.copy(conversations = chatDao.conversations())
@@ -460,7 +507,7 @@ class ChatViewModel @Inject constructor(
         repeat(3) {
             val page = chatApi.messages(conversationId, after)
             if (page.isEmpty()) return@repeat
-            page.forEach { chatDao.saveMessage(it.toEntity()) }
+            page.forEach { chatDao.saveMessage(storeRemote(it)) }
             val last = page.last().seq
             if (page.size < 200 || last <= after) return@repeat
             after = last
@@ -498,7 +545,171 @@ class ChatViewModel @Inject constructor(
             }
         }
         rec?.runCatching { release() }
+        engine?.runCatching { stop() }
+        engine = null
         super.onCleared()
+    }
+
+    fun bindCallRenderers(local: org.webrtc.SurfaceViewRenderer, remote: org.webrtc.SurfaceViewRenderer) {
+        engine?.attach(local, remote)
+    }
+
+    fun myFingerprint(): String {
+        val userId = chatApi.accountUserId()
+        if (userId.isBlank()) return ""
+        return identityStore.fingerprint(userId)
+    }
+
+    fun peerFingerprint(): String {
+        val key = _state.value.peerIdentityKey
+        if (key.isBlank()) return ""
+        return fingerprintOf(decodeKey(key))
+    }
+
+    fun beginCall(kind: String) {
+        val conversationId = _state.value.openId ?: return
+        if (_state.value.openType != "direct" || _state.value.callPhase != "idle") return
+        val callId = UUID.randomUUID().toString()
+        _state.value = _state.value.copy(
+            callPhase = "outgoing",
+            callId = callId,
+            callKind = kind,
+            callPeer = _state.value.peerName,
+            callConversationId = conversationId,
+        )
+        viewModelScope.launch(Dispatchers.Main) {
+            val ice = runCatching { withContext(Dispatchers.IO) { chatApi.ice() } }.getOrDefault(emptyList())
+            val next = CallEngine(context)
+            engine = next
+            next.start(kind, ice, onIce = { candidate ->
+                signal("call-ice", callId, conversationId, kind, candidate = candidate.sdp, sdpMid = candidate.sdpMid, line = candidate.sdpMLineIndex)
+            }, onReady = { description ->
+                signal("call-invite", callId, conversationId, kind, sdp = description.description)
+            }, offer = true)
+        }
+    }
+
+    fun acceptCall() {
+        val state = _state.value
+        if (state.callPhase != "incoming") return
+        val offer = pendingOffer
+        viewModelScope.launch(Dispatchers.Main) {
+            val ice = runCatching { withContext(Dispatchers.IO) { chatApi.ice() } }.getOrDefault(emptyList())
+            val next = CallEngine(context)
+            engine = next
+            next.start(state.callKind, ice, onIce = { candidate ->
+                signal("call-ice", state.callId, state.callConversationId, state.callKind, candidate = candidate.sdp, sdpMid = candidate.sdpMid, line = candidate.sdpMLineIndex)
+            }, onReady = {}, offer = false)
+            next.acceptOffer(offer) { answer ->
+                signal("call-answer", state.callId, state.callConversationId, state.callKind, sdp = answer)
+                _state.value = _state.value.copy(callPhase = "active")
+            }
+        }
+    }
+
+    fun hangup() {
+        val state = _state.value
+        if (state.callPhase != "idle") {
+            signal("call-hangup", state.callId, state.callConversationId, state.callKind)
+        }
+        finishCall()
+    }
+
+    private fun handleCall(event: SocketEvent.Call) {
+        when (event.type) {
+            "call-invite" -> {
+                if (_state.value.callPhase != "idle") {
+                    signal("call-hangup", event.callId, event.conversationId, event.kind)
+                    return
+                }
+                pendingOffer = event.sdp
+                _state.value = _state.value.copy(
+                    callPhase = "incoming",
+                    callId = event.callId,
+                    callKind = event.kind.ifBlank { "audio" },
+                    callPeer = event.from,
+                    callConversationId = event.conversationId,
+                )
+            }
+            "call-answer" -> {
+                if (event.callId != _state.value.callId) return
+                engine?.acceptAnswer(event.sdp)
+                _state.value = _state.value.copy(callPhase = "active")
+            }
+            "call-ice" -> {
+                if (event.callId == _state.value.callId) engine?.addIce(event.candidate, event.sdpMid, event.sdpMLineIndex)
+            }
+            "call-hangup" -> if (event.callId == _state.value.callId) finishCall()
+        }
+    }
+
+    private fun finishCall() {
+        engine?.runCatching { stop() }
+        engine = null
+        pendingOffer = ""
+        _state.value = _state.value.copy(callPhase = "idle", callId = "", callConversationId = "")
+    }
+
+    private fun signal(
+        type: String,
+        callId: String,
+        conversationId: String,
+        kind: String,
+        sdp: String = "",
+        candidate: String = "",
+        sdpMid: String = "",
+        line: Int = 0,
+    ) {
+        if (callId.isBlank() || conversationId.isBlank()) return
+        socket?.send(
+            JSONObject()
+                .put("type", type)
+                .put("callId", callId)
+                .put("conversationId", conversationId)
+                .put("kind", kind)
+                .put("sdp", sdp)
+                .put("candidate", candidate)
+                .put("sdpMid", sdpMid)
+                .put("sdpMLineIndex", line)
+                .toString(),
+        )
+    }
+
+    private fun seal(text: String): String {
+        val identity = identityStore.ensure(chatApi.accountUserId())
+        val box = DirectCipher.seal(identity, decodeKey(_state.value.peerIdentityKey), text.toByteArray(Charsets.UTF_8))
+        return encodeKey(box)
+    }
+
+    private fun storeRemote(remote: ru.pm.messenger.data.RemoteMessage, knownPlaintext: String? = null): MessageEntity {
+        val existing = chatDao.message(remote.clientMessageId)
+        val opened = if (remote.encryption == "x25519_v1") openCiphertext(remote.ciphertext) else null
+        val text = when {
+            !knownPlaintext.isNullOrBlank() -> knownPlaintext
+            remote.encryption != "x25519_v1" -> remote.text
+            opened != null -> opened
+            !existing?.text.isNullOrBlank() && existing?.text != LOCKED -> existing?.text.orEmpty()
+            else -> LOCKED
+        }
+        val reply = when {
+            remote.replyToText.isNotBlank() -> remote.replyToText
+            remote.replyToSeq > 0 -> chatDao.messages(remote.conversationId).firstOrNull { it.seq == remote.replyToSeq }?.text.orEmpty()
+            else -> ""
+        }
+        return remote.toEntity().copy(text = text, replyToText = reply.ifBlank { remote.replyToText })
+    }
+
+    private fun openCiphertext(ciphertext: String): String? {
+        if (ciphertext.isBlank() || _state.value.peerIdentityKey.isBlank()) return null
+        val identity = identityStore.ensure(chatApi.accountUserId())
+        return runCatching {
+            DirectCipher.open(
+                identity.privateKey,
+                identity.publicKey,
+                decodeKey(_state.value.peerIdentityKey),
+                decodeKey(ciphertext),
+            )?.toString(Charsets.UTF_8)
+        }.getOrNull()
     }
 
     private fun displayName(uri: Uri): String {
@@ -530,6 +741,8 @@ private fun ru.pm.messenger.data.RemoteConversation.toEntity() = ConversationEnt
     peerLastReadSeq = peerLastReadSeq,
     peerLastSeenAt = peerLastSeenAt,
     peerOnline = peerOnline,
+    peerIdentityKey = peerIdentityKey,
+    lastEncrypted = lastEncrypted,
 )
 
 private fun ru.pm.messenger.data.RemoteMessage.toEntity() = MessageEntity(
@@ -548,3 +761,5 @@ private fun ru.pm.messenger.data.RemoteMessage.toEntity() = MessageEntity(
     replyToText = replyToText,
     edited = edited,
 )
+
+private const val LOCKED = "Не удалось расшифровать"

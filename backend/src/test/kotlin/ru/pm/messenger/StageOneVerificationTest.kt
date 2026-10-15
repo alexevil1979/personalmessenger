@@ -35,8 +35,10 @@ class StageOneVerificationTest {
         assertTrue(body.contains("\"status\":\"UP\"") || body.contains("\"status\" : \"UP\""))
         assertTrue(body.contains("\"postgres\""))
         assertTrue(body.contains("\"redis\""))
-        assertTrue(body.contains("NOT_ENABLED"))
-        assertTrue(body.contains("0.6.5"))
+        assertTrue(body.contains("PARTIAL"))
+        assertTrue(body.contains("X25519"))
+        assertTrue(!body.contains("End-to-end encryption is not implemented"))
+        assertTrue(body.contains("0.7.0"))
         assertTrue(response.headers().firstValue("X-Correlation-Id").isPresent)
         assertEquals(false, body.contains("ciphertext"))
     }

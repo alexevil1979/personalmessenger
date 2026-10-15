@@ -71,7 +71,7 @@ class ChatController(
         @PathVariable seq: Long,
         @RequestBody body: EditMessageRequest,
     ): MessageView {
-        val message = chat.editMessage(currentPrincipal(), id, seq, body.text)
+        val message = chat.editMessage(currentPrincipal(), id, seq, body.text.orEmpty(), body.ciphertext.orEmpty())
         live.publish(message, chat.memberIds(id))
         return message
     }

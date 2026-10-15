@@ -61,6 +61,7 @@ class LiveSessions {
 class ChatSocketHandler(
     private val live: LiveSessions,
     private val chat: ChatService,
+    private val calls: CallService,
 ) : TextWebSocketHandler() {
     override fun afterConnectionEstablished(session: WebSocketSession) {
         val principal = session.attributes["principal"] as? MessengerPrincipal
@@ -86,7 +87,10 @@ class ChatSocketHandler(
         }
     }
 
-    override fun handleTextMessage(session: WebSocketSession, message: TextMessage) = Unit
+    override fun handleTextMessage(session: WebSocketSession, message: TextMessage) {
+        val principal = session.attributes["principal"] as? MessengerPrincipal ?: return
+        calls.relay(principal, message.payload)
+    }
 }
 
 @Component
@@ -113,6 +117,29 @@ class ChatHandshakeInterceptor(
         wsHandler: WebSocketHandler,
         exception: Exception?,
     ) = Unit
+}
+
+internal fun callEvent(
+    type: String,
+    callId: String,
+    conversationId: String,
+    kind: String,
+    sdp: String,
+    candidate: String,
+    sdpMid: String,
+    sdpMLineIndex: Int,
+    from: String,
+): String = buildString {
+    append("""{"type":${json(type)},""")
+    append(""""callId":${json(callId)},""")
+    append(""""conversationId":${json(conversationId)},""")
+    append(""""kind":${json(kind)},""")
+    append(""""sdp":${json(sdp)},""")
+    append(""""candidate":${json(candidate)},""")
+    append(""""sdpMid":${json(sdpMid)},""")
+    append(""""sdpMLineIndex":$sdpMLineIndex,""")
+    append(""""from":${json(from)}""")
+    append("}")
 }
 
 internal fun readEvent(conversationId: UUID, username: String, seq: Long): String = buildString {
@@ -148,6 +175,7 @@ internal fun messageEvent(message: MessageView): String = buildString {
     append(""""clientMessageId":${json(message.clientMessageId.toString())},""")
     append(""""text":${json(message.text)},""")
     append(""""encryption":${json(message.encryption)},""")
+    append(""""ciphertext":${message.ciphertext?.let { json(it) } ?: "null"},""")
     append(""""createdAt":${json(message.createdAt.toString())},""")
     append(""""kind":${json(message.kind)},""")
     append(""""attachmentId":${message.attachmentId?.let { json(it.toString()) } ?: "null"},""")

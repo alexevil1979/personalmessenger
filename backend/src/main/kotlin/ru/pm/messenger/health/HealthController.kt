@@ -78,8 +78,11 @@ object HealthProbes {
             "postgres" to postgres,
             "redis" to redis,
             "minio" to minio,
-            "websocket" to ComponentStatus("UP", "Direct messages are delivered in plaintext"),
-            "e2ee" to ComponentStatus("NOT_ENABLED", "End-to-end encryption is not implemented"),
+            "websocket" to ComponentStatus("UP", "Direct text is encrypted on the devices. Groups, files and voice are plaintext. Call signaling is relayed here."),
+            "e2ee" to ComponentStatus(
+                "PARTIAL",
+                "Direct text uses X25519 and AES-GCM on the devices. The server stores the encrypted bytes and cannot read them. Groups, files and voice remain readable by the server. This is not the Signal protocol.",
+            ),
         )
         val down = listOf(postgres, redis, minio).any { it.status == "DOWN" }
         return HealthReport(status = if (down) "DOWN" else "UP", version = version, components = components)

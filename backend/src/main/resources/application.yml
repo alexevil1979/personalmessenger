@@ -42,10 +42,10 @@ management:
 info:
   app:
     name: personal-messenger
-    version: 0.6.5
+    version: 0.7.0
 
 app:
-  version: 0.6.5
+  version: 0.7.0
   auth:
     access-ttl: 15m
     refresh-ttl: 30d
@@ -64,6 +64,9 @@ app:
     link-ttl: 5m
   cors:
     allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  turn:
+    secret: ${TURN_SECRET:}
+    host: ${TURN_HOST:pm.1tlt.ru}
 
 springdoc:
   api-docs:

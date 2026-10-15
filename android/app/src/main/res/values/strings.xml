@@ -2,14 +2,14 @@
 <resources>
     <string name="app_name">Личный мессенджер</string>
     <string name="connection_title">Проверка подключения</string>
-    <string name="connection_body">Звонки ещё не включены. Этот экран выполняет реальный запрос к серверу.</string>
+    <string name="connection_body">Этот экран проверяет сервер. Личные звонки идут через WebRTC.</string>
     <string name="account_title">Аккаунт</string>
     <string name="account_body">Регистрация только по приглашению. Пароль не короче 12 символов.</string>
     <string name="username">Имя</string>
     <string name="display_name">Отображаемое имя</string>
     <string name="password">Пароль</string>
     <string name="invitation_code">Код приглашения</string>
-    <string name="privacy_accept">Сервер пока может прочитать сообщения. Сквозного шифрования нет.</string>
+    <string name="privacy_accept">Текст личного чата шифруется на телефоне. Файлы, голосовые и группы сервер читает. Это не протокол Signal.</string>
     <string name="login">Войти</string>
     <string name="register">Зарегистрироваться</string>
     <string name="logout">Выйти</string>
@@ -18,8 +18,8 @@
     <string name="signed_in">Вы вошли как %1$s (%2$s)</string>
     <string name="role_label">Роль: %1$s</string>
     <string name="role_none">Роль не назначена</string>
-    <string name="no_e2ee">Сквозное шифрование не включено.</string>
-    <string name="error_privacy">Нужно подтвердить, что шифрования пока нет.</string>
+    <string name="no_e2ee">Личный текст шифруется на телефоне. Файлы, голосовые и группы — нет.</string>
+    <string name="error_privacy">Нужно подтвердить, как устроено шифрование.</string>
     <string name="error_password">Пароль короче 12 символов или совпадает с именем.</string>
     <string name="error_invitation">Приглашение недействительно.</string>
     <string name="error_username_taken">Это имя уже занято.</string>
@@ -51,7 +51,7 @@
     <string name="edited_mark">изм.</string>
     <string name="error_reply_missing">Исходное сообщение уже удалено.</string>
     <string name="error_not_editable">Файл и голосовое сообщение нельзя править.</string>
-    <string name="chats_plaintext">Текст и файлы пока читаются сервером. Сквозного шифрования нет.</string>
+    <string name="chats_plaintext">Личный текст шифруется на телефоне. Файлы, голосовые и группы сервер читает.</string>
     <string name="peer_username">Имя собеседника</string>
     <string name="open_chat">Открыть чат</string>
     <string name="chat_with">Чат с %1$s</string>
@@ -92,4 +92,15 @@
     <string name="component_postgres">PostgreSQL: %1$s</string>
     <string name="component_redis">Redis: %1$s</string>
     <string name="connection_error">Не удалось подключиться. Проверьте адрес и что сервер запущен.</string>
+    <string name="encrypted_message">Зашифрованное сообщение</string>
+    <string name="error_peer_key">У собеседника ещё нет ключа. Пусть откроет приложение.</string>
+    <string name="call_audio">Аудиозвонок</string>
+    <string name="call_video">Видеозвонок</string>
+    <string name="call_incoming">Входящий звонок</string>
+    <string name="call_outgoing">Вызов</string>
+    <string name="call_accept">Ответить</string>
+    <string name="call_hangup">Завершить</string>
+    <string name="call_direct">Личный звонок. Сервер видит факт вызова, не звук и не картинку.</string>
+    <string name="keys_title">Ключи</string>
+    <string name="keys_body">Мой отпечаток: %1$s\nСобеседник: %2$s\nСверьте отпечатки при встрече. Это не протокол Signal.</string>
 </resources>

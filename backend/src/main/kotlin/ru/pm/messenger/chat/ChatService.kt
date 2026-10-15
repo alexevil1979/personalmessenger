@@ -97,7 +97,17 @@ class ChatService(
                    ), 0) AS unread_count,
                    COALESCE(other.last_read_seq, 0) AS peer_last_read_seq,
                    u.last_seen_at AS peer_last_seen_at,
-                   other.user_id AS peer_user_id
+                   other.user_id AS peer_user_id,
+                   (
+                       SELECT replace(encode(d.identity_public_key, 'base64'), E'\n', '')
+                       FROM devices d
+                       WHERE d.user_id = other.user_id
+                         AND d.revoked_at IS NULL
+                         AND d.identity_public_key IS NOT NULL
+                       ORDER BY d.last_seen_at DESC NULLS LAST
+                       LIMIT 1
+                   ) AS peer_identity_key,
+                   CASE WHEN m.encryption IS NOT NULL AND m.encryption <> 'none' THEN true ELSE false END AS last_encrypted
             FROM conversation_members me
             JOIN conversations c ON c.id = me.conversation_id
             LEFT JOIN conversation_members other
@@ -257,6 +267,25 @@ class ChatService(
 
     fun username(userId: UUID): String = usernameOf(userId)
 
+    fun requireDirectPeer(principal: MessengerPrincipal, conversationId: UUID): UUID {
+        requireMember(principal, conversationId)
+        return jdbc.sql(
+            """
+            SELECT other.user_id
+            FROM conversations c
+            JOIN conversation_members other
+              ON other.conversation_id = c.id
+             AND other.user_id <> :userId
+             AND other.left_at IS NULL
+            WHERE c.id = :id AND c.type = 'direct'
+            """.trimIndent(),
+        ).param("id", conversationId).param("userId", principal.userId)
+            .query(UUID::class.java)
+            .optional()
+            .orElse(null)
+            ?: throw ApiException(HttpStatus.BAD_REQUEST, "not_a_direct", "Calls are only available in a direct chat.")
+    }
+
     fun directPeerIds(userId: UUID): List<UUID> =
         jdbc.sql(
             """
@@ -306,37 +335,52 @@ class ChatService(
     }
 
     @Transactional
-    fun editMessage(principal: MessengerPrincipal, conversationId: UUID, seq: Long, text: String): MessageView {
+    fun editMessage(
+        principal: MessengerPrincipal,
+        conversationId: UUID,
+        seq: Long,
+        text: String,
+        ciphertext: String,
+    ): MessageView {
         requireMember(principal, conversationId)
-        val clean = text.trim()
-        if (clean.isEmpty() || clean.length > 4000) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Message text is invalid.")
-        }
         val row = jdbc.sql(
             """
-            SELECT sender_user_id, kind, deleted_at
+            SELECT sender_user_id, kind, deleted_at, encryption
             FROM messages
             WHERE conversation_id = :conversationId AND seq = :seq
             """.trimIndent(),
         ).param("conversationId", conversationId).param("seq", seq)
             .query { rs, _ ->
-                Triple(
-                    rs.getObject("sender_user_id", UUID::class.java),
+                listOf(
+                    rs.getObject("sender_user_id", UUID::class.java).toString(),
                     rs.getString("kind"),
-                    rs.getObject("deleted_at"),
+                    rs.getObject("deleted_at")?.toString().orEmpty(),
+                    rs.getString("encryption"),
                 )
             }
             .optional()
             .orElse(null)
             ?: throw ApiException(HttpStatus.NOT_FOUND, "message_not_found", "Message was not found.")
-        if (row.first != principal.userId) {
+        if (UUID.fromString(row[0]) != principal.userId) {
             throw ApiException(HttpStatus.FORBIDDEN, "not_message_author", "Only the author can edit a message.")
         }
-        if (row.third != null) {
+        if (row[2].isNotEmpty()) {
             throw ApiException(HttpStatus.NOT_FOUND, "message_not_found", "Message was not found.")
         }
-        if (row.second != "text") {
+        if (row[1] != "text") {
             throw ApiException(HttpStatus.BAD_REQUEST, "not_editable", "Only a text message can be edited.")
+        }
+        val bytes = if (row[3] == "x25519_v1") {
+            if (text.isNotBlank()) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Encrypted messages do not include plaintext.")
+            }
+            decodeCiphertext(ciphertext)
+        } else {
+            val clean = text.trim()
+            if (clean.isEmpty() || clean.length > 4000) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Message text is invalid.")
+            }
+            clean.toByteArray(Charsets.UTF_8)
         }
         jdbc.sql(
             """
@@ -344,7 +388,7 @@ class ChatService(
             SET ciphertext = :ciphertext, edited_at = now()
             WHERE conversation_id = :conversationId AND seq = :seq AND deleted_at IS NULL
             """.trimIndent(),
-        ).param("ciphertext", clean.toByteArray(Charsets.UTF_8))
+        ).param("ciphertext", bytes)
             .param("conversationId", conversationId)
             .param("seq", seq)
             .update()
@@ -352,6 +396,18 @@ class ChatService(
             .param("id", conversationId)
             .update()
         return visibleMessage(conversationId, seq)
+    }
+
+    private fun decodeCiphertext(value: String): ByteArray {
+        val bytes = try {
+            java.util.Base64.getDecoder().decode(value)
+        } catch (_: IllegalArgumentException) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Ciphertext is invalid.")
+        }
+        if (bytes.size < 61 || bytes.size > 12_000 || bytes[0] != 1.toByte()) {
+            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Ciphertext is invalid.")
+        }
+        return bytes
     }
 
     private fun replyTarget(conversationId: UUID, seq: Long): ReplyTarget {
@@ -401,13 +457,22 @@ class ChatService(
     fun send(principal: MessengerPrincipal, conversationId: UUID, request: SendMessageRequest): MessageView {
         requireMember(principal, conversationId)
         rejectBlockedDirect(principal, conversationId)
-        val text = request.text.trim()
         val attachment = request.attachmentId?.let { attachments.requireSendable(principal, conversationId, it) }
-        if ((text.isEmpty() && attachment == null) || text.length > 4000) {
-            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Message text is invalid.")
+        val encrypted = (request.encryption ?: "none") == "x25519_v1"
+        val text = request.text.orEmpty().trim()
+        val bytes = if (encrypted) {
+            if (attachment != null || text.isNotEmpty()) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Encrypted messages do not include plaintext.")
+            }
+            decodeCiphertext(request.ciphertext.orEmpty())
+        } else if (request.encryption != null && request.encryption != "none") {
+            throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Encryption is not supported.")
+        } else {
+            if ((text.isEmpty() && attachment == null) || text.length > 4000) {
+                throw ApiException(HttpStatus.BAD_REQUEST, "validation_error", "Message text is invalid.")
+            }
+            text.ifEmpty { attachment!!.originalName }.toByteArray(Charsets.UTF_8)
         }
-        val storedText = text.ifEmpty { attachment!!.originalName }
-        val bytes = storedText.toByteArray(Charsets.UTF_8)
         val reply = request.replyToSeq?.let { replyTarget(conversationId, it) }
         return try {
             write.execute<MessageView> {
@@ -418,7 +483,7 @@ class ChatService(
                     reply_to_id, kind, encryption, ciphertext
                 ) VALUES (
                     :id, :conversationId, :senderUserId, :senderDeviceId, :clientMessageId,
-                    CASE WHEN :hasReply THEN :replyToId ELSE NULL END, :kind, 'none', :ciphertext
+                    CASE WHEN :hasReply THEN :replyToId ELSE NULL END, :kind, :encryption, :ciphertext
                 )
                 RETURNING seq, id, created_at
                 """.trimIndent(),
@@ -430,6 +495,7 @@ class ChatService(
                 .param("hasReply", reply != null)
                 .param("replyToId", reply?.id ?: UUID(0, 0))
                 .param("kind", attachment?.kind ?: "text")
+                .param("encryption", if (encrypted) "x25519_v1" else "none")
                 .param("ciphertext", bytes)
                 .query { rs, _ ->
                     Triple(rs.getLong("seq"), rs.getObject("id", UUID::class.java), rs.time("created_at"))
@@ -448,8 +514,8 @@ class ChatService(
                 senderUserId = principal.userId,
                 senderUsername = usernameOf(principal.userId),
                 clientMessageId = request.clientMessageId,
-                text = storedText,
-                encryption = "none",
+                text = if (encrypted) "" else bytes.toString(Charsets.UTF_8),
+                encryption = if (encrypted) "x25519_v1" else "none",
                 createdAt = created.third,
                 kind = attachment?.kind ?: "text",
                 attachmentId = attachment?.id,
@@ -458,6 +524,7 @@ class ChatService(
                 replyToSeq = reply?.seq,
                 replyToUsername = reply?.username,
                 replyToText = reply?.text,
+                ciphertext = if (encrypted) java.util.Base64.getEncoder().encodeToString(bytes) else null,
             )
             } ?: throw ApiException(HttpStatus.CONFLICT, "client_message_id", "Message identity is already used.")
         } catch (_: DataIntegrityViolationException) {
@@ -660,6 +727,8 @@ class ChatService(
             peerLastReadSeq = if (getObject("peer_last_read_seq") == null) 0 else getLong("peer_last_read_seq"),
             peerLastSeenAt = getObject("peer_last_seen_at")?.let { time("peer_last_seen_at") },
             peerOnline = getObject("peer_user_id", UUID::class.java)?.let { live.online(it) } ?: false,
+            peerIdentityKey = getString("peer_identity_key").orEmpty(),
+            lastEncrypted = getBoolean("last_encrypted"),
         )
     }
 
@@ -692,6 +761,7 @@ class ChatService(
                 null
             },
             edited = getObject("edited_at") != null,
+            ciphertext = if (encryption == "none") null else java.util.Base64.getEncoder().encodeToString(getBytes("ciphertext")),
         )
     }
 

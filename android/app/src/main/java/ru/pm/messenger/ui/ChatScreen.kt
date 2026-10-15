@@ -34,12 +34,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -230,6 +232,7 @@ private fun ChatRowItem(conversation: ConversationEntity, onClick: () -> Unit) {
                 )
             }
             val preview = conversation.preview.takeUnless { it.isBlank() || it == "null" }.orEmpty()
+                .ifBlank { if (conversation.lastEncrypted) stringResource(R.string.encrypted_message) else "" }
             if (preview.isNotBlank() || conversation.unreadCount > 0) {
                 Spacer(Modifier.height(3.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -325,6 +328,14 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
     val askMic = rememberLauncherForActivityResult(RequestPermission()) { granted ->
         if (granted) viewModel.startRecording() else viewModel.showError("mic_denied")
     }
+    val askCall = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        val audio = granted[Manifest.permission.RECORD_AUDIO] == true
+        val wantsVideo = granted.containsKey(Manifest.permission.CAMERA)
+        val camera = !wantsVideo || granted[Manifest.permission.CAMERA] == true
+        if (audio && camera) viewModel.beginCall(if (wantsVideo) "video" else "audio")
+        else viewModel.showError("mic_denied")
+    }
+    var keys by remember { mutableStateOf(false) }
     LaunchedEffect(state.downloadUrl) {
         val url = state.downloadUrl ?: return@LaunchedEffect
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -356,7 +367,19 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
                     state.peerLastSeenAt.isNotBlank() -> stringResource(R.string.peer_last_seen, formatListTime(state.peerLastSeenAt))
                     else -> state.peerUsername
                 }
-                if (subtitle.isNotBlank()) Text(subtitle, color = Tg.secondary, fontSize = 13.sp, maxLines = 1)
+                if (subtitle.isNotBlank()) Text(subtitle, color = if (state.peerOnline) Tg.accentBright else Tg.secondary, fontSize = 13.sp, maxLines = 1)
+            }
+            if (state.openType == "direct") {
+                IconButton(onClick = {
+                    askCall.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+                }) {
+                    Icon(Icons.Filled.Call, contentDescription = stringResource(R.string.call_audio), tint = Tg.accentBright)
+                }
+                IconButton(onClick = {
+                    askCall.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA))
+                }) {
+                    Icon(Icons.Filled.Videocam, contentDescription = stringResource(R.string.call_video), tint = Tg.accentBright)
+                }
             }
             Box {
                 IconButton(onClick = { menu = true }) {
@@ -364,6 +387,13 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Tg.bars) {
                     if (state.openType == "direct") {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.keys_title), color = Tg.text) },
+                            onClick = {
+                                menu = false
+                                keys = true
+                            },
+                        )
                         DropdownMenuItem(
                             text = {
                                 Text(
@@ -537,6 +567,22 @@ private fun Conversation(viewModel: ChatViewModel, myUsername: String) {
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.back_to_chats), color = Tg.secondary) }
+            },
+        )
+    }
+    if (keys) {
+        AlertDialog(
+            onDismissRequest = { keys = false },
+            containerColor = Tg.bars,
+            title = { Text(stringResource(R.string.keys_title), color = Tg.text) },
+            text = {
+                Text(
+                    stringResource(R.string.keys_body, viewModel.myFingerprint(), viewModel.peerFingerprint()),
+                    color = Tg.secondary,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { keys = false }) { Text(stringResource(R.string.back_to_chats), color = Tg.secondary) }
             },
         )
     }
@@ -747,6 +793,7 @@ private fun chatError(code: String): Int = when (code) {
     "unsupported_media" -> R.string.error_unsupported
     "payload_too_large" -> R.string.error_too_large
     "mic_denied" -> R.string.error_mic_denied
+    "peer_key_missing" -> R.string.error_peer_key
     "mic_failed" -> R.string.error_mic_failed
     "owner_must_stay" -> R.string.error_owner_stays
     "cannot_remove_self" -> R.string.error_remove_self

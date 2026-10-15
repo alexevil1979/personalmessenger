@@ -99,5 +99,14 @@ fun HomeScreen(
             )
             else -> AccountScreen(accountViewModel, baseUrl) { baseUrl = it }
         }
+        if (signedIn != null && chatState.callPhase != "idle") {
+            BackHandler { chatViewModel.hangup() }
+            CallScreen(
+                viewModel = chatViewModel,
+                phase = chatState.callPhase,
+                kind = chatState.callKind,
+                peer = chatState.callPeer,
+            )
+        }
     }
 }
